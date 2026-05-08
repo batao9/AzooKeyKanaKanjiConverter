@@ -25,6 +25,18 @@ public enum KanaKanjiConverterEnginePerfLog {
     }
 }
 
+public enum KanaKanjiConverterEngineRuntime {
+    nonisolated(unsafe) private static var gpuLayerCount: Int32 = 0
+
+    public static func configure(gpuLayerCount: Int32) {
+        self.gpuLayerCount = gpuLayerCount
+    }
+
+    package static var resolvedGpuLayerCount: Int32 {
+        gpuLayerCount
+    }
+}
+
 package func enginePerfMillis(since start: Double) -> Int {
     Int((ProcessInfo.processInfo.systemUptime - start) * 1000)
 }

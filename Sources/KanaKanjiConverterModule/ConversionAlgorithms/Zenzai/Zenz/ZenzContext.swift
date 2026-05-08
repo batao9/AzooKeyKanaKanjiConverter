@@ -105,6 +105,7 @@ final class ZenzContext {
         let loadStart = ProcessInfo.processInfo.systemUptime
         llama_backend_init()
         var model_params = llama_model_default_params()
+        model_params.n_gpu_layers = KanaKanjiConverterEngineRuntime.resolvedGpuLayerCount
         model_params.use_mmap = true
         KanaKanjiConverterEnginePerfLog.emit(
             "zenz_context create begin path_last_component=\(URL(filePath: path).lastPathComponent) n_gpu_layers=\(model_params.n_gpu_layers) use_mmap=\(model_params.use_mmap) system_info=\"\(String(cString: llama_print_system_info()))\""
@@ -141,17 +142,22 @@ final class ZenzContext {
             throw ZenzError.couldNotLoadContext
         }
         self.context = context
+        self.prevInput = []
     }
 
     private func get_logits(tokens: [llama_token], logits_start_index: Int = 0) -> UnsafeMutablePointer<Float>? {
         let totalStart = ProcessInfo.processInfo.systemUptime
         let previousTokenCount = self.prevInput.count
         let commonTokenCount: Int
+        let reusablePrefixCount: Int
         // manage kv_cache
         do {
             let commonTokens = self.prevInput.commonPrefix(with: tokens)
             commonTokenCount = commonTokens.count
-            llama_kv_cache_seq_rm(context, 0, llama_pos(commonTokens.count), -1)
+            // The caller indexes logits from logits_start_index. Keep cache only before
+            // that point so all requested logits are regenerated in this batch.
+            reusablePrefixCount = min(commonTokenCount, logits_start_index)
+            llama_kv_cache_seq_rm(context, 0, llama_pos(reusablePrefixCount), -1)
         }
         let cacheMs = enginePerfMillis(since: totalStart)
         let batchStart = ProcessInfo.processInfo.systemUptime
@@ -161,7 +167,7 @@ final class ZenzContext {
         if n_kv_req > n_ctx {
             debug("error: n_kv_req > n_ctx, the required KV cache size is not big enough")
         }
-        for i in tokens.indices {
+        for i in tokens.indices.dropFirst(reusablePrefixCount) {
             llama_batch_add(&batch, tokens[i], Int32(i), [0], logits: logits_start_index <= i)
         }
         let batchMs = enginePerfMillis(since: batchStart)
@@ -172,8 +178,9 @@ final class ZenzContext {
             return nil
         }
         let decodeMs = enginePerfMillis(since: decodeStart)
+        self.prevInput = tokens
         KanaKanjiConverterEnginePerfLog.emit(
-            "zenz_context get_logits total_ms=\(enginePerfMillis(since: totalStart)) cache_ms=\(cacheMs) batch_ms=\(batchMs) decode_ms=\(decodeMs) token_count=\(tokens.count) prev_token_count=\(previousTokenCount) common_prefix_tokens=\(commonTokenCount) logits_start_index=\(logits_start_index) n_ctx=\(n_ctx)"
+            "zenz_context get_logits total_ms=\(enginePerfMillis(since: totalStart)) cache_ms=\(cacheMs) batch_ms=\(batchMs) decode_ms=\(decodeMs) token_count=\(tokens.count) prev_token_count=\(previousTokenCount) common_prefix_tokens=\(commonTokenCount) reused_prefix_tokens=\(reusablePrefixCount) decoded_tokens=\(tokens.count - reusablePrefixCount) logits_start_index=\(logits_start_index) n_ctx=\(n_ctx)"
         )
         return llama_get_logits(context)
     }
