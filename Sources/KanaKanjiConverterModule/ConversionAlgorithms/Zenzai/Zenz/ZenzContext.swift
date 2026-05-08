@@ -102,9 +102,13 @@ final class ZenzContext {
     }
 
     static func createContext(path: String) throws -> ZenzContext {
+        let loadStart = ProcessInfo.processInfo.systemUptime
         llama_backend_init()
         var model_params = llama_model_default_params()
         model_params.use_mmap = true
+        KanaKanjiConverterEnginePerfLog.emit(
+            "zenz_context create begin path_last_component=\(URL(filePath: path).lastPathComponent) n_gpu_layers=\(model_params.n_gpu_layers) use_mmap=\(model_params.use_mmap) system_info=\"\(String(cString: llama_print_system_info()))\""
+        )
         let model = llama_model_load_from_file(path, model_params)
         guard let model else {
             debug("Could not load model at \(path)")
@@ -123,6 +127,9 @@ final class ZenzContext {
             throw ZenzError.couldNotLoadVocab
         }
 
+        KanaKanjiConverterEnginePerfLog.emit(
+            "zenz_context create finish elapsed_ms=\(enginePerfMillis(since: loadStart))"
+        )
         return ZenzContext(model: model, context: context, vocab: vocab)
     }
 
@@ -137,11 +144,17 @@ final class ZenzContext {
     }
 
     private func get_logits(tokens: [llama_token], logits_start_index: Int = 0) -> UnsafeMutablePointer<Float>? {
+        let totalStart = ProcessInfo.processInfo.systemUptime
+        let previousTokenCount = self.prevInput.count
+        let commonTokenCount: Int
         // manage kv_cache
         do {
             let commonTokens = self.prevInput.commonPrefix(with: tokens)
+            commonTokenCount = commonTokens.count
             llama_kv_cache_seq_rm(context, 0, llama_pos(commonTokens.count), -1)
         }
+        let cacheMs = enginePerfMillis(since: totalStart)
+        let batchStart = ProcessInfo.processInfo.systemUptime
         var batch = llama_batch_init(512, 0, 1)
         let n_ctx = llama_n_ctx(context)
         let n_kv_req = tokens.count + (Int(n_len) - tokens.count)
@@ -151,11 +164,17 @@ final class ZenzContext {
         for i in tokens.indices {
             llama_batch_add(&batch, tokens[i], Int32(i), [0], logits: logits_start_index <= i)
         }
+        let batchMs = enginePerfMillis(since: batchStart)
         // 評価
+        let decodeStart = ProcessInfo.processInfo.systemUptime
         if llama_decode(context, batch) != 0 {
             debug("llama_decode() failed")
             return nil
         }
+        let decodeMs = enginePerfMillis(since: decodeStart)
+        KanaKanjiConverterEnginePerfLog.emit(
+            "zenz_context get_logits total_ms=\(enginePerfMillis(since: totalStart)) cache_ms=\(cacheMs) batch_ms=\(batchMs) decode_ms=\(decodeMs) token_count=\(tokens.count) prev_token_count=\(previousTokenCount) common_prefix_tokens=\(commonTokenCount) logits_start_index=\(logits_start_index) n_ctx=\(n_ctx)"
+        )
         return llama_get_logits(context)
     }
 
@@ -192,6 +211,19 @@ final class ZenzContext {
         struct AlternativeConstraint: Sendable, Equatable, Hashable {
             var probabilityRatio: Float
             var prefixConstraint: [UInt8]
+        }
+
+        var perfLabel: String {
+            switch self {
+            case .error:
+                "error"
+            case .pass:
+                "pass"
+            case .fixRequired:
+                "fixRequired"
+            case .wholeResult:
+                "wholeResult"
+            }
         }
     }
 
@@ -304,6 +336,7 @@ final class ZenzContext {
         personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
     ) -> CandidateEvaluationResult {
+        let totalStart = ProcessInfo.processInfo.systemUptime
         debug("Evaluate", candidate)
         // For zenz-v1 model, \u{EE00} is a token used for 'start query', and \u{EE01} is a token used for 'start answer'
         // We assume \u{EE01}\(candidate) is always splitted into \u{EE01}_\(candidate) by zenz-v1 tokenizer
@@ -389,16 +422,21 @@ final class ZenzContext {
         // プロンプトの前処理を適用
         prompt = self.preprocessText(text: prompt)
         // Therefore, tokens = prompt_tokens + candidate_tokens is an appropriate operation.
+        let tokenizeStart = ProcessInfo.processInfo.systemUptime
         let prompt_tokens = self.tokenize(text: prompt, add_bos: true, add_eos: false)
         let candidate_tokens = self.tokenize(text: self.preprocessText(text: candidate.text), add_bos: false, add_eos: false)
+        let tokenizeMs = enginePerfMillis(since: tokenizeStart)
         let tokens = prompt_tokens + candidate_tokens
         let startOffset = prompt_tokens.count - 1
         let pos_max = llama_kv_cache_seq_pos_max(self.context, 0)
         debug("pos max:", pos_max)
+        let logitsStart = ProcessInfo.processInfo.systemUptime
         guard let logits = self.get_logits(tokens: tokens, logits_start_index: startOffset) else {
             debug("logits unavailable")
             return .error
         }
+        let logitsMs = enginePerfMillis(since: logitsStart)
+        let postprocessStart = ProcessInfo.processInfo.systemUptime
         let n_vocab = llama_vocab_n_tokens(vocab)
         let is_learned_token: [(isLearned: Bool, priority: Float)] = Array(repeating: (false, 0), count: prompt_tokens.count) + candidate.data.flatMap {
             // priorityは文字数にする→文字数が長いほど優先される
@@ -511,6 +549,10 @@ final class ZenzContext {
             }
             score += maxItem.logprob
         }
+        let postprocessMs = enginePerfMillis(since: postprocessStart)
+        KanaKanjiConverterEnginePerfLog.emit(
+            "zenz_context evaluate_candidate total_ms=\(enginePerfMillis(since: totalStart)) tokenize_ms=\(tokenizeMs) logits_ms=\(logitsMs) postprocess_ms=\(postprocessMs) input_chars=\(input.count) candidate_chars=\(candidate.text.count) prompt_chars=\(prompt.count) prompt_tokens=\(prompt_tokens.count) candidate_tokens=\(candidate_tokens.count) total_tokens=\(tokens.count) start_offset=\(startOffset) vocab_size=\(n_vocab) pos_max=\(pos_max) rich=\(requestRichCandidates) personalized=\(personalizationMode != nil)"
+        )
         return .pass(score: score, alternativeConstraints: altTokens.unordered.sorted(by: >).map {.init(probabilityRatio: $0.probabilityRatioToMaxProb, prefixConstraint: $0.constraint)})
     }
 

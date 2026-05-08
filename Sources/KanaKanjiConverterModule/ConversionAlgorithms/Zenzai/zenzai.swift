@@ -62,7 +62,11 @@ extension Kana2Kanji {
         personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
     ) -> (result: LatticeNode, lattice: Lattice, cache: ZenzaiCache) {
+        let totalStart = ProcessInfo.processInfo.systemUptime
         var constraint = zenzaiCache?.getNewConstraint(for: inputData) ?? PrefixConstraint([])
+        KanaKanjiConverterEnginePerfLog.emit(
+            "all_zenzai start input_count=\(inputData.input.count) surface_count=\(inputData.convertTarget.count) initial_constraint_bytes=\(constraint.constraint.count) initial_constraint_has_eos=\(constraint.hasEOS) had_cache=\(zenzaiCache != nil) inference_limit=\(inferenceLimit) rich=\(requestRichCandidates)"
+        )
         debug("initial constraint", constraint)
         let eosNode = LatticeNode.EOSNode
         var lattice: Lattice = Lattice()
@@ -73,7 +77,8 @@ extension Kana2Kanji {
         }
         var inferenceLimit = inferenceLimit
         while true {
-            let start = Date()
+            let draftStart = ProcessInfo.processInfo.systemUptime
+            let constraintWasEmpty = constraint.isEmpty
             let draftResult = if constraint.isEmpty {
                 // 全部を変換する場合はN=2の変換を行う
                 // 実験の結果、ここは2-bestを取ると平均的な速度が最良になることがわかったので、そうしている。
@@ -87,6 +92,9 @@ extension Kana2Kanji {
                 lattice = draftResult.lattice
             }
             let candidates = draftResult.result.getCandidateData().map(self.processClauseCandidate)
+            KanaKanjiConverterEnginePerfLog.emit(
+                "all_zenzai draft elapsed_ms=\(enginePerfMillis(since: draftStart)) constraint_empty=\(constraintWasEmpty) constraint_bytes=\(constraint.constraint.count) result_prev_count=\(draftResult.result.prevs.count) candidate_count=\(candidates.count)"
+            )
             constructedCandidates.append(contentsOf: zip(draftResult.result.prevs, candidates))
             var best: (Int, Candidate)?
             for (i, cand) in candidates.enumerated() {
@@ -100,10 +108,13 @@ extension Kana2Kanji {
                 debug("best was not found!")
                 // Emptyの場合
                 // 制約が満たせない場合は無視する
+                KanaKanjiConverterEnginePerfLog.emit(
+                    "all_zenzai finish reason=no_best total_ms=\(enginePerfMillis(since: totalStart)) inserted_count=\(insertedCandidates.count)"
+                )
                 return (eosNode, lattice, ZenzaiCache(inputData, constraint: PrefixConstraint([]), satisfyingCandidate: nil))
             }
 
-            debug("Constrained draft modeling", -start.timeIntervalSinceNow)
+            debug("Constrained draft modeling", enginePerfMillis(since: draftStart))
             reviewLoop: while true {
                 // resultsを更新
                 // ここでN-Bestも並び変えていることになる
@@ -111,14 +122,21 @@ extension Kana2Kanji {
                 if inferenceLimit == 0 {
                     debug("inference limit! \(candidate.text) is used for excuse")
                     // When inference occurs more than maximum times, then just return result at this point
+                    KanaKanjiConverterEnginePerfLog.emit(
+                        "all_zenzai finish reason=inference_limit total_ms=\(enginePerfMillis(since: totalStart)) inserted_count=\(insertedCandidates.count) final_constraint_bytes=\(constraint.constraint.count) final_constraint_has_eos=\(constraint.hasEOS)"
+                    )
                     return (eosNode, lattice, ZenzaiCache(inputData, constraint: constraint, satisfyingCandidate: candidate))
                 }
+                let reviewStart = ProcessInfo.processInfo.systemUptime
                 let reviewResult = zenz.candidateEvaluate(
                     convertTarget: inputData.convertTarget,
                     candidates: [candidate],
                     requestRichCandidates: requestRichCandidates,
                     personalizationMode: personalizationMode,
                     versionDependentConfig: versionDependentConfig
+                )
+                KanaKanjiConverterEnginePerfLog.emit(
+                    "all_zenzai review elapsed_ms=\(enginePerfMillis(since: reviewStart)) candidate_text_count=\(candidate.text.count) candidate_ruby_count=\(candidate.rubyCount) remaining_inference_limit_before_decrement=\(inferenceLimit) result=\(reviewResult.perfLabel)"
                 )
                 inferenceLimit -= 1
                 let nextAction = self.review(
@@ -159,8 +177,14 @@ extension Kana2Kanji {
                         }
                     }
                     if satisfied {
+                        KanaKanjiConverterEnginePerfLog.emit(
+                            "all_zenzai finish reason=satisfied total_ms=\(enginePerfMillis(since: totalStart)) inserted_count=\(insertedCandidates.count) final_constraint_bytes=\(constraint.constraint.count) final_constraint_has_eos=\(constraint.hasEOS)"
+                        )
                         return (eosNode, lattice, ZenzaiCache(inputData, constraint: constraint, satisfyingCandidate: candidate))
                     } else {
+                        KanaKanjiConverterEnginePerfLog.emit(
+                            "all_zenzai finish reason=unsatisfied total_ms=\(enginePerfMillis(since: totalStart)) inserted_count=\(insertedCandidates.count) final_constraint_bytes=\(constraint.constraint.count) final_constraint_has_eos=\(constraint.hasEOS)"
+                        )
                         return (eosNode, lattice, ZenzaiCache(inputData, constraint: constraint, satisfyingCandidate: nil))
                     }
                 case .continue:
