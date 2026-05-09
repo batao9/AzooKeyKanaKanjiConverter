@@ -10,7 +10,138 @@ import Algorithms
 import Foundation
 import SwiftUtils
 
+struct FullInputLatticeSeed {
+    struct NodeSeed {
+        init(_ node: LatticeNode) {
+            self.data = node.data
+            self.range = node.range
+            self.hasBOS = !node.prevs.isEmpty
+        }
+
+        let data: DicdataElement
+        let range: Lattice.LatticeRange
+        let hasBOS: Bool
+
+        func makeNode() -> LatticeNode {
+            let node = LatticeNode(data: self.data, range: self.range)
+            if self.hasBOS {
+                node.prevs.append(RegisteredNode.BOSNode())
+            }
+            return node
+        }
+    }
+
+    let inputCount: Int
+    let surfaceCount: Int
+    let indexMap: LatticeDualIndexMap
+    let latticeIndices: [LatticeDualIndexMap.DualIndex]
+    let rawNodeSeeds: [[NodeSeed]]
+    let indexMs: Int
+    let lookupMs: Int
+    let rawNodeCount: Int
+
+    func makeRawNodes() -> [[LatticeNode]] {
+        self.rawNodeSeeds.map { nodeSeeds in
+            nodeSeeds.map { $0.makeNode() }
+        }
+    }
+}
+
 extension Kana2Kanji {
+    func makeFullInputLatticeSeed(_ inputData: ComposingText, needTypoCorrection: Bool) -> FullInputLatticeSeed {
+        let inputCount: Int = inputData.input.count
+        let surfaceCount = inputData.convertTarget.count
+        let indexStart = ProcessInfo.processInfo.systemUptime
+        let indexMap = LatticeDualIndexMap(inputData)
+        let latticeIndices = indexMap.indices(inputCount: inputCount, surfaceCount: surfaceCount)
+        let indexMs = enginePerfMillis(since: indexStart)
+        let lookupStart = ProcessInfo.processInfo.systemUptime
+        let rawNodes = latticeIndices.map { index in
+            let inputRange: (startIndex: Int, endIndexRange: Range<Int>?)? = if let iIndex = index.inputIndex {
+                (iIndex, nil)
+            } else {
+                nil
+            }
+            let surfaceRange: (startIndex: Int, endIndexRange: Range<Int>?)? = if let sIndex = index.surfaceIndex {
+                (sIndex, nil)
+            } else {
+                nil
+            }
+            return dicdataStore.lookupDicdata(
+                composingText: inputData,
+                inputRange: inputRange,
+                surfaceRange: surfaceRange,
+                needTypoCorrection: needTypoCorrection
+            )
+        }
+        let lookupMs = enginePerfMillis(since: lookupStart)
+        let rawNodeCount = rawNodes.reduce(0) { $0 + $1.count }
+        let rawNodeSeeds = rawNodes.map { nodes in
+            nodes.map(FullInputLatticeSeed.NodeSeed.init)
+        }
+        return FullInputLatticeSeed(
+            inputCount: inputCount,
+            surfaceCount: surfaceCount,
+            indexMap: indexMap,
+            latticeIndices: latticeIndices,
+            rawNodeSeeds: rawNodeSeeds,
+            indexMs: indexMs,
+            lookupMs: lookupMs,
+            rawNodeCount: rawNodeCount
+        )
+    }
+
+    func kana2lattice_all_from_seed(_ seed: FullInputLatticeSeed, N_best: Int) -> (result: LatticeNode, lattice: Lattice) {
+        let totalStart = ProcessInfo.processInfo.systemUptime
+        let result: LatticeNode = LatticeNode.EOSNode
+        let rawNodes = seed.makeRawNodes()
+        let latticeBuildStart = ProcessInfo.processInfo.systemUptime
+        let lattice: Lattice = Lattice(
+            inputCount: seed.inputCount,
+            surfaceCount: seed.surfaceCount,
+            rawNodes: rawNodes
+        )
+        let latticeBuildMs = enginePerfMillis(since: latticeBuildStart)
+        let traverseStart = ProcessInfo.processInfo.systemUptime
+        var visitedNodeCount = 0
+        var skippedEmptyPrevCount = 0
+        var skippedRemovedCount = 0
+        var resultUpdateCount = 0
+        var nextUpdateCount = 0
+        for (isHead, nodeArray) in lattice.indexedNodes(indices: seed.latticeIndices) {
+            for node in nodeArray {
+                visitedNodeCount += 1
+                if node.prevs.isEmpty {
+                    skippedEmptyPrevCount += 1
+                    continue
+                }
+                if self.dicdataStore.shouldBeRemoved(data: node.data) {
+                    skippedRemovedCount += 1
+                    continue
+                }
+                let wValue: PValue = node.data.value()
+                if isHead {
+                    node.values = node.prevs.map {$0.totalValue + wValue + self.dicdataStore.getCCValue($0.data.rcid, node.data.lcid)}
+                } else {
+                    node.values = node.prevs.map {$0.totalValue + wValue}
+                }
+                let nextIndex = seed.indexMap.dualIndex(for: node.range.endIndex)
+                if nextIndex.surfaceIndex == seed.surfaceCount {
+                    resultUpdateCount += 1
+                    self.updateResultNode(with: node, resultNode: result)
+                } else {
+                    nextUpdateCount += 1
+                    self.updateNextNodes(with: node, nextNodes: lattice[index: nextIndex], nBest: N_best)
+                }
+            }
+        }
+        let traverseMs = enginePerfMillis(since: traverseStart)
+        KanaKanjiConverterEnginePerfLog.emit(
+            "kana2lattice_all_seeded total_ms=\(enginePerfMillis(since: totalStart)) index_ms=0 lookup_ms=0 seed_index_ms=\(seed.indexMs) seed_lookup_ms=\(seed.lookupMs) lattice_build_ms=\(latticeBuildMs) traverse_ms=\(traverseMs) input_count=\(seed.inputCount) surface_count=\(seed.surfaceCount) lattice_index_count=\(seed.latticeIndices.count) raw_node_count=\(seed.rawNodeCount) visited_node_count=\(visitedNodeCount) skipped_empty_prev_count=\(skippedEmptyPrevCount) skipped_removed_count=\(skippedRemovedCount) result_update_count=\(resultUpdateCount) next_update_count=\(nextUpdateCount) result_prev_count=\(result.prevs.count) n_best=\(N_best)"
+        )
+        return (result: result, lattice: lattice)
+    }
+
     /// カナを漢字に変換する関数, 前提はなくかな列が与えられた場合。
     /// - Parameters:
     ///   - inputData: 入力データ。

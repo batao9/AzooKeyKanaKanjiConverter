@@ -77,6 +77,11 @@ extension Kana2Kanji {
         defer {
             eosNode.prevs = insertedCandidates.map(\.0)
         }
+        let seedStart = ProcessInfo.processInfo.systemUptime
+        let latticeSeed = self.makeFullInputLatticeSeed(inputData, needTypoCorrection: false)
+        KanaKanjiConverterEnginePerfLog.emit(
+            "all_zenzai lattice_seed elapsed_ms=\(enginePerfMillis(since: seedStart)) index_ms=\(latticeSeed.indexMs) lookup_ms=\(latticeSeed.lookupMs) input_count=\(latticeSeed.inputCount) surface_count=\(latticeSeed.surfaceCount) lattice_index_count=\(latticeSeed.latticeIndices.count) raw_node_count=\(latticeSeed.rawNodeCount)"
+        )
         var inferenceLimit = inferenceLimit
         while true {
             let draftStart = ProcessInfo.processInfo.systemUptime
@@ -85,10 +90,10 @@ extension Kana2Kanji {
             let draftResult = if constraint.isEmpty {
                 // 全部を変換する場合はN=2の変換を行う
                 // 実験の結果、ここは2-bestを取ると平均的な速度が最良になることがわかったので、そうしている。
-                self.kana2lattice_all(inputData, N_best: 2, needTypoCorrection: false)
+                self.kana2lattice_all_from_seed(latticeSeed, N_best: 2)
             } else {
                 // 制約がついている場合は高速になるので、N=3としている
-                self.kana2lattice_all_with_prefix_constraint(inputData, N_best: 3, constraint: constraint)
+                self.kana2lattice_all_with_prefix_constraint_from_seed(latticeSeed, N_best: 3, constraint: constraint)
             }
             let latticeMs = enginePerfMillis(since: latticeStart)
             if lattice.isEmpty {
