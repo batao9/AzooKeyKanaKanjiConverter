@@ -34,16 +34,22 @@ extension Kana2Kanji {
         preprocessedLattice: Lattice? = nil,
         dicdataStoreState: DicdataStoreState
     ) -> (result: LatticeNode, lattice: Lattice) {
+        let totalStart = enginePerfStart()
         debug("新規に計算を行います。inputされた文字列は\(inputData.input.count)文字分の\(inputData.convertTarget)")
         let result: LatticeNode = LatticeNode.EOSNode
         let inputCount: Int = inputData.input.count
         let surfaceCount = inputData.convertTarget.count
+        let indexStart = enginePerfStart()
         let indexMap = LatticeDualIndexMap(inputData)
         let latticeIndices = indexMap.indices(inputCount: inputCount, surfaceCount: surfaceCount)
+        let indexMs = enginePerfMillis(since: indexStart)
         let lattice: Lattice
+        var lookupMs = 0
+        var rawNodeCount = 0
         if let preprocessedLattice {
             lattice = preprocessedLattice
         } else {
+            let lookupStart = enginePerfStart()
             let rawNodes = latticeIndices.map { index in
                 let inputRange: (startIndex: Int, endIndexRange: Range<Int>?)? = if let iIndex = index.inputIndex {
                     (iIndex, nil)
@@ -63,12 +69,15 @@ extension Kana2Kanji {
                     state: dicdataStoreState
                 )
             }
+            lookupMs = enginePerfMillis(since: lookupStart)
+            rawNodeCount = rawNodes.reduce(0) { $0 + $1.count }
             lattice = Lattice(
                 inputCount: inputCount,
                 surfaceCount: surfaceCount,
                 rawNodes: rawNodes
             )
         }
+        let traverseStart = enginePerfStart()
         // 「i文字目から始まるnodes」に対して
         for (isHead, nodeArray) in lattice.indexedNodes(indices: latticeIndices) {
             // それぞれのnodeに対して
@@ -98,6 +107,10 @@ extension Kana2Kanji {
                 }
             }
         }
+        let traverseMs = enginePerfMillis(since: traverseStart)
+        KanaKanjiConverterEnginePerfLog.emit(
+            "kana2lattice_all total_ms=\(enginePerfMillis(since: totalStart)) index_ms=\(indexMs) lookup_ms=\(lookupMs) traverse_ms=\(traverseMs) input_count=\(inputCount) surface_count=\(surfaceCount) lattice_index_count=\(latticeIndices.count) raw_node_count=\(rawNodeCount) result_prev_count=\(result.prevs.count) n_best=\(N_best) typo=\(needTypoCorrection) preprocessed_lattice=\(preprocessedLattice != nil)"
+        )
         return (result: result, lattice: lattice)
     }
 
