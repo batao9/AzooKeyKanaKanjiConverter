@@ -56,6 +56,7 @@ final class ZenzContext {
     }
 
     static func createContext(path: String) throws -> ZenzContext {
+        let loadStart = enginePerfStart()
         llama_backend_init()
         var model_params = llama_model_default_params()
         model_params.use_mmap = true
@@ -63,7 +64,12 @@ final class ZenzContext {
         // CPU 専用: GPU へのオフロードを無効化
         model_params.n_gpu_layers = 0
         model_params.split_mode = LLAMA_SPLIT_MODE_NONE
+        #else
+        model_params.n_gpu_layers = KanaKanjiConverterEngineRuntime.resolvedGpuLayerCount
         #endif
+        KanaKanjiConverterEnginePerfLog.emit(
+            "zenz_context create begin path_last_component=\(URL(filePath: path).lastPathComponent) n_gpu_layers=\(model_params.n_gpu_layers) use_mmap=\(model_params.use_mmap) system_info=\"\(String(cString: llama_print_system_info()))\""
+        )
         let model = llama_model_load_from_file(path, model_params)
         guard let model else {
             debug("Could not load model at \(path)")
@@ -87,6 +93,9 @@ final class ZenzContext {
             throw ZenzError.couldNotLoadVocab
         }
 
+        KanaKanjiConverterEnginePerfLog.emit(
+            "zenz_context create finish elapsed_ms=\(enginePerfMillis(since: loadStart))"
+        )
         return ZenzContext(model: model, context: context, vocab: vocab)
     }
 
@@ -107,8 +116,10 @@ final class ZenzContext {
     }
 
     private func getLogits(tokens: [llama_token], logits_start_index: Int = 0, seqId: llama_seq_id = 0) -> UnsafeMutablePointer<Float>? {
+        let totalStart = enginePerfStart()
         let currentPrevInput = self.prevInputBySeq[seqId] ?? []
         var effectivePrevInput = currentPrevInput
+        var copiedPrefixCount = 0
 
         // Try to copy KV cache from the other sequence if it gives a longer prefix match.
         let otherSeqId: llama_seq_id? = if seqId == evalSeqId {
@@ -122,7 +133,7 @@ final class ZenzContext {
             let currentPrefix = currentPrevInput.commonPrefix(with: tokens).count
             let otherPrefix = otherPrevInput.commonPrefix(with: tokens).count
             if otherPrefix > currentPrefix {
-                let copiedPrefixCount = min(otherPrefix, logits_start_index)
+                copiedPrefixCount = min(otherPrefix, logits_start_index)
                 if copiedPrefixCount > 0 {
                     llama_kv_cache_seq_rm(context, seqId, 0, -1)
                     llama_kv_cache_seq_cp(context, otherSeqId, seqId, 0, llama_pos(copiedPrefixCount))
@@ -143,6 +154,8 @@ final class ZenzContext {
             llama_kv_cache_seq_rm(context, seqId, llama_pos(prefixCacheCount), -1)
             debug("new pos max:", llama_kv_cache_seq_pos_max(self.context, seqId), "commonTokens:", commonTokens.count)
         }
+        let cacheMs = enginePerfMillis(since: totalStart)
+        let batchStart = enginePerfStart()
         var batch = llama_batch_init(512, 0, 1)
         defer { llama_batch_free(batch) }
         let n_ctx = llama_n_ctx(context)
@@ -153,13 +166,19 @@ final class ZenzContext {
         for i in tokens.indices.dropFirst(prefixCacheCount) {
             llama_batch_add(&batch, tokens[i], Int32(i), [seqId], logits: logits_start_index <= i)
         }
+        let batchMs = enginePerfMillis(since: batchStart)
         // 評価
+        let decodeStart = enginePerfStart()
         if llama_decode(context, batch) != 0 {
             debug("llama_decode() failed")
             return nil
         }
+        let decodeMs = enginePerfMillis(since: decodeStart)
         // update cached input for next call (for KV cache management)
         self.prevInputBySeq[seqId] = tokens
+        KanaKanjiConverterEnginePerfLog.emit(
+            "zenz_context get_logits total_ms=\(enginePerfMillis(since: totalStart)) cache_ms=\(cacheMs) batch_ms=\(batchMs) decode_ms=\(decodeMs) token_count=\(tokens.count) prev_token_count=\(currentPrevInput.count) reused_prefix_tokens=\(prefixCacheCount) copied_prefix_tokens=\(copiedPrefixCount) decoded_tokens=\(tokens.count - prefixCacheCount) logits_start_index=\(logits_start_index) seq_id=\(seqId) n_ctx=\(n_ctx)"
+        )
         return llama_get_logits(context)
     }
 

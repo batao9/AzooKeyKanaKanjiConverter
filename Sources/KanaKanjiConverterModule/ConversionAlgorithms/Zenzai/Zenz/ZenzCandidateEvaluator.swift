@@ -17,6 +17,19 @@ enum CandidateEvaluationResult: Sendable, Equatable, Hashable {
         var probabilityRatio: Float
         var prefixConstraint: [UInt8]
     }
+
+    var perfLabel: String {
+        switch self {
+        case .error:
+            "error"
+        case .pass:
+            "pass"
+        case .fixRequired:
+            "fixRequired"
+        case .wholeResult:
+            "wholeResult"
+        }
+    }
 }
 
 struct ZenzCandidateEvaluator {
