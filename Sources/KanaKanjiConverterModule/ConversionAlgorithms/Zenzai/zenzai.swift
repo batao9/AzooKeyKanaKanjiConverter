@@ -62,8 +62,8 @@ extension Kana2Kanji {
         personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
     ) -> (result: LatticeNode, lattice: Lattice, cache: ZenzaiCache) {
-        let totalStart = ProcessInfo.processInfo.systemUptime
-        let constraintStart = ProcessInfo.processInfo.systemUptime
+        let totalStart = enginePerfStart()
+        let constraintStart = enginePerfStart()
         var constraint = zenzaiCache?.getNewConstraint(for: inputData) ?? PrefixConstraint([])
         let constraintMs = enginePerfMillis(since: constraintStart)
         KanaKanjiConverterEnginePerfLog.emit(
@@ -77,16 +77,16 @@ extension Kana2Kanji {
         defer {
             eosNode.prevs = insertedCandidates.map(\.0)
         }
-        let seedStart = ProcessInfo.processInfo.systemUptime
+        let seedStart = enginePerfStart()
         let latticeSeed = self.makeFullInputLatticeSeed(inputData, needTypoCorrection: false)
         KanaKanjiConverterEnginePerfLog.emit(
             "all_zenzai lattice_seed elapsed_ms=\(enginePerfMillis(since: seedStart)) index_ms=\(latticeSeed.indexMs) lookup_ms=\(latticeSeed.lookupMs) input_count=\(latticeSeed.inputCount) surface_count=\(latticeSeed.surfaceCount) lattice_index_count=\(latticeSeed.latticeIndices.count) raw_node_count=\(latticeSeed.rawNodeCount)"
         )
         var inferenceLimit = inferenceLimit
         while true {
-            let draftStart = ProcessInfo.processInfo.systemUptime
+            let draftStart = enginePerfStart()
             let constraintWasEmpty = constraint.isEmpty
-            let latticeStart = ProcessInfo.processInfo.systemUptime
+            let latticeStart = enginePerfStart()
             let draftResult = if constraint.isEmpty {
                 // 全部を変換する場合はN=2の変換を行う
                 // 実験の結果、ここは2-bestを取ると平均的な速度が最良になることがわかったので、そうしている。
@@ -100,17 +100,17 @@ extension Kana2Kanji {
                 // 初回のみ
                 lattice = draftResult.lattice
             }
-            let candidateDataStart = ProcessInfo.processInfo.systemUptime
+            let candidateDataStart = enginePerfStart()
             let candidateData = draftResult.result.getCandidateData()
             let candidateDataMs = enginePerfMillis(since: candidateDataStart)
-            let processCandidateStart = ProcessInfo.processInfo.systemUptime
+            let processCandidateStart = enginePerfStart()
             let candidates = candidateData.map(self.processClauseCandidate)
             let processCandidateMs = enginePerfMillis(since: processCandidateStart)
             KanaKanjiConverterEnginePerfLog.emit(
                 "all_zenzai draft elapsed_ms=\(enginePerfMillis(since: draftStart)) lattice_ms=\(latticeMs) candidate_data_ms=\(candidateDataMs) process_candidate_ms=\(processCandidateMs) constraint_empty=\(constraintWasEmpty) constraint_bytes=\(constraint.constraint.count) result_prev_count=\(draftResult.result.prevs.count) candidate_data_count=\(candidateData.count) candidate_count=\(candidates.count)"
             )
             constructedCandidates.append(contentsOf: zip(draftResult.result.prevs, candidates))
-            let bestStart = ProcessInfo.processInfo.systemUptime
+            let bestStart = enginePerfStart()
             var best: (Int, Candidate)?
             for (i, cand) in candidates.enumerated() {
                 if let (_, c) = best, cand.value > c.value {
@@ -146,7 +146,7 @@ extension Kana2Kanji {
                     )
                     return (eosNode, lattice, ZenzaiCache(inputData, constraint: constraint, satisfyingCandidate: candidate))
                 }
-                let reviewStart = ProcessInfo.processInfo.systemUptime
+                let reviewStart = enginePerfStart()
                 let reviewResult = zenz.candidateEvaluate(
                     convertTarget: inputData.convertTarget,
                     candidates: [candidate],

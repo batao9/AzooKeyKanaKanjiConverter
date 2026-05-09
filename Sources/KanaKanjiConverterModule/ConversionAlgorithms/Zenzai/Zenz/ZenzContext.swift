@@ -102,7 +102,7 @@ final class ZenzContext {
     }
 
     static func createContext(path: String) throws -> ZenzContext {
-        let loadStart = ProcessInfo.processInfo.systemUptime
+        let loadStart = enginePerfStart()
         llama_backend_init()
         var model_params = llama_model_default_params()
         model_params.n_gpu_layers = KanaKanjiConverterEngineRuntime.resolvedGpuLayerCount
@@ -146,7 +146,7 @@ final class ZenzContext {
     }
 
     private func get_logits(tokens: [llama_token], logits_start_index: Int = 0) -> UnsafeMutablePointer<Float>? {
-        let totalStart = ProcessInfo.processInfo.systemUptime
+        let totalStart = enginePerfStart()
         let previousTokenCount = self.prevInput.count
         let commonTokenCount: Int
         let reusablePrefixCount: Int
@@ -160,7 +160,7 @@ final class ZenzContext {
             llama_kv_cache_seq_rm(context, 0, llama_pos(reusablePrefixCount), -1)
         }
         let cacheMs = enginePerfMillis(since: totalStart)
-        let batchStart = ProcessInfo.processInfo.systemUptime
+        let batchStart = enginePerfStart()
         var batch = llama_batch_init(512, 0, 1)
         let n_ctx = llama_n_ctx(context)
         let n_kv_req = tokens.count + (Int(n_len) - tokens.count)
@@ -172,7 +172,7 @@ final class ZenzContext {
         }
         let batchMs = enginePerfMillis(since: batchStart)
         // 評価
-        let decodeStart = ProcessInfo.processInfo.systemUptime
+        let decodeStart = enginePerfStart()
         if llama_decode(context, batch) != 0 {
             debug("llama_decode() failed")
             return nil
@@ -343,7 +343,7 @@ final class ZenzContext {
         personalizationMode: (mode: ConvertRequestOptions.ZenzaiMode.PersonalizationMode, base: EfficientNGram, personal: EfficientNGram)?,
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
     ) -> CandidateEvaluationResult {
-        let totalStart = ProcessInfo.processInfo.systemUptime
+        let totalStart = enginePerfStart()
         debug("Evaluate", candidate)
         // For zenz-v1 model, \u{EE00} is a token used for 'start query', and \u{EE01} is a token used for 'start answer'
         // We assume \u{EE01}\(candidate) is always splitted into \u{EE01}_\(candidate) by zenz-v1 tokenizer
@@ -429,7 +429,7 @@ final class ZenzContext {
         // プロンプトの前処理を適用
         prompt = self.preprocessText(text: prompt)
         // Therefore, tokens = prompt_tokens + candidate_tokens is an appropriate operation.
-        let tokenizeStart = ProcessInfo.processInfo.systemUptime
+        let tokenizeStart = enginePerfStart()
         let prompt_tokens = self.tokenize(text: prompt, add_bos: true, add_eos: false)
         let candidate_tokens = self.tokenize(text: self.preprocessText(text: candidate.text), add_bos: false, add_eos: false)
         let tokenizeMs = enginePerfMillis(since: tokenizeStart)
@@ -437,13 +437,13 @@ final class ZenzContext {
         let startOffset = prompt_tokens.count - 1
         let pos_max = llama_kv_cache_seq_pos_max(self.context, 0)
         debug("pos max:", pos_max)
-        let logitsStart = ProcessInfo.processInfo.systemUptime
+        let logitsStart = enginePerfStart()
         guard let logits = self.get_logits(tokens: tokens, logits_start_index: startOffset) else {
             debug("logits unavailable")
             return .error
         }
         let logitsMs = enginePerfMillis(since: logitsStart)
-        let postprocessStart = ProcessInfo.processInfo.systemUptime
+        let postprocessStart = enginePerfStart()
         let n_vocab = llama_vocab_n_tokens(vocab)
         let is_learned_token: [(isLearned: Bool, priority: Float)] = Array(repeating: (false, 0), count: prompt_tokens.count) + candidate.data.flatMap {
             // priorityは文字数にする→文字数が長いほど優先される

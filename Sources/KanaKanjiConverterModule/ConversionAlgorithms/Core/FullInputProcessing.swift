@@ -51,11 +51,11 @@ extension Kana2Kanji {
     func makeFullInputLatticeSeed(_ inputData: ComposingText, needTypoCorrection: Bool) -> FullInputLatticeSeed {
         let inputCount: Int = inputData.input.count
         let surfaceCount = inputData.convertTarget.count
-        let indexStart = ProcessInfo.processInfo.systemUptime
+        let indexStart = enginePerfStart()
         let indexMap = LatticeDualIndexMap(inputData)
         let latticeIndices = indexMap.indices(inputCount: inputCount, surfaceCount: surfaceCount)
         let indexMs = enginePerfMillis(since: indexStart)
-        let lookupStart = ProcessInfo.processInfo.systemUptime
+        let lookupStart = enginePerfStart()
         let rawNodes = latticeIndices.map { index in
             let inputRange: (startIndex: Int, endIndexRange: Range<Int>?)? = if let iIndex = index.inputIndex {
                 (iIndex, nil)
@@ -92,17 +92,17 @@ extension Kana2Kanji {
     }
 
     func kana2lattice_all_from_seed(_ seed: FullInputLatticeSeed, N_best: Int) -> (result: LatticeNode, lattice: Lattice) {
-        let totalStart = ProcessInfo.processInfo.systemUptime
+        let totalStart = enginePerfStart()
         let result: LatticeNode = LatticeNode.EOSNode
         let rawNodes = seed.makeRawNodes()
-        let latticeBuildStart = ProcessInfo.processInfo.systemUptime
+        let latticeBuildStart = enginePerfStart()
         let lattice: Lattice = Lattice(
             inputCount: seed.inputCount,
             surfaceCount: seed.surfaceCount,
             rawNodes: rawNodes
         )
         let latticeBuildMs = enginePerfMillis(since: latticeBuildStart)
-        let traverseStart = ProcessInfo.processInfo.systemUptime
+        let traverseStart = enginePerfStart()
         var visitedNodeCount = 0
         var skippedEmptyPrevCount = 0
         var skippedRemovedCount = 0
@@ -159,16 +159,16 @@ extension Kana2Kanji {
     ///
     /// (4)ノードをアップデートした上で返却する。
     func kana2lattice_all(_ inputData: ComposingText, N_best: Int, needTypoCorrection: Bool) -> (result: LatticeNode, lattice: Lattice) {
-        let totalStart = ProcessInfo.processInfo.systemUptime
+        let totalStart = enginePerfStart()
         debug("新規に計算を行います。inputされた文字列は\(inputData.input.count)文字分の\(inputData.convertTarget)")
         let result: LatticeNode = LatticeNode.EOSNode
         let inputCount: Int = inputData.input.count
         let surfaceCount = inputData.convertTarget.count
-        let indexStart = ProcessInfo.processInfo.systemUptime
+        let indexStart = enginePerfStart()
         let indexMap = LatticeDualIndexMap(inputData)
         let latticeIndices = indexMap.indices(inputCount: inputCount, surfaceCount: surfaceCount)
         let indexMs = enginePerfMillis(since: indexStart)
-        let lookupStart = ProcessInfo.processInfo.systemUptime
+        let lookupStart = enginePerfStart()
         let rawNodes = latticeIndices.map { index in
             let inputRange: (startIndex: Int, endIndexRange: Range<Int>?)? = if let iIndex = index.inputIndex {
                 (iIndex, nil)
@@ -189,14 +189,14 @@ extension Kana2Kanji {
         }
         let lookupMs = enginePerfMillis(since: lookupStart)
         let rawNodeCount = rawNodes.reduce(0) { $0 + $1.count }
-        let latticeBuildStart = ProcessInfo.processInfo.systemUptime
+        let latticeBuildStart = enginePerfStart()
         let lattice: Lattice = Lattice(
             inputCount: inputCount,
             surfaceCount: surfaceCount,
             rawNodes: rawNodes
         )
         let latticeBuildMs = enginePerfMillis(since: latticeBuildStart)
-        let traverseStart = ProcessInfo.processInfo.systemUptime
+        let traverseStart = enginePerfStart()
         var visitedNodeCount = 0
         var skippedEmptyPrevCount = 0
         var skippedRemovedCount = 0

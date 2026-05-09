@@ -11,17 +11,16 @@ public enum KanaKanjiConverterEnginePerfLog {
         self.logger = logger
     }
 
+    package static var isEnabled: Bool {
+        enabled
+    }
+
     package static func emit(_ message: @autoclosure () -> String) {
-        guard enabled else {
+        guard enabled, let logger else {
             return
         }
 
-        let resolvedMessage = message()
-        if let logger {
-            logger(resolvedMessage)
-        } else {
-            print("[ENGINE/PERF] \(resolvedMessage)")
-        }
+        logger(message())
     }
 }
 
@@ -37,6 +36,18 @@ public enum KanaKanjiConverterEngineRuntime {
     }
 }
 
-package func enginePerfMillis(since start: Double) -> Int {
+package func enginePerfStart() -> Double? {
+    guard KanaKanjiConverterEnginePerfLog.isEnabled else {
+        return nil
+    }
+
+    return ProcessInfo.processInfo.systemUptime
+}
+
+package func enginePerfMillis(since start: Double?) -> Int {
+    guard let start else {
+        return 0
+    }
+
     Int((ProcessInfo.processInfo.systemUptime - start) * 1000)
 }
