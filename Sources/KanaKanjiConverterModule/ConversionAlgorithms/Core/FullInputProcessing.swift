@@ -28,12 +28,16 @@ extension Kana2Kanji {
     ///
     /// (4)ノードをアップデートした上で返却する。
     func kana2lattice_all(_ inputData: ComposingText, N_best: Int, needTypoCorrection: Bool) -> (result: LatticeNode, lattice: Lattice) {
+        let totalStart = ProcessInfo.processInfo.systemUptime
         debug("新規に計算を行います。inputされた文字列は\(inputData.input.count)文字分の\(inputData.convertTarget)")
         let result: LatticeNode = LatticeNode.EOSNode
         let inputCount: Int = inputData.input.count
         let surfaceCount = inputData.convertTarget.count
+        let indexStart = ProcessInfo.processInfo.systemUptime
         let indexMap = LatticeDualIndexMap(inputData)
         let latticeIndices = indexMap.indices(inputCount: inputCount, surfaceCount: surfaceCount)
+        let indexMs = enginePerfMillis(since: indexStart)
+        let lookupStart = ProcessInfo.processInfo.systemUptime
         let rawNodes = latticeIndices.map { index in
             let inputRange: (startIndex: Int, endIndexRange: Range<Int>?)? = if let iIndex = index.inputIndex {
                 (iIndex, nil)
@@ -52,19 +56,32 @@ extension Kana2Kanji {
                 needTypoCorrection: needTypoCorrection
             )
         }
+        let lookupMs = enginePerfMillis(since: lookupStart)
+        let rawNodeCount = rawNodes.reduce(0) { $0 + $1.count }
+        let latticeBuildStart = ProcessInfo.processInfo.systemUptime
         let lattice: Lattice = Lattice(
             inputCount: inputCount,
             surfaceCount: surfaceCount,
             rawNodes: rawNodes
         )
+        let latticeBuildMs = enginePerfMillis(since: latticeBuildStart)
+        let traverseStart = ProcessInfo.processInfo.systemUptime
+        var visitedNodeCount = 0
+        var skippedEmptyPrevCount = 0
+        var skippedRemovedCount = 0
+        var resultUpdateCount = 0
+        var nextUpdateCount = 0
         // 「i文字目から始まるnodes」に対して
         for (isHead, nodeArray) in lattice.indexedNodes(indices: latticeIndices) {
             // それぞれのnodeに対して
             for node in nodeArray {
+                visitedNodeCount += 1
                 if node.prevs.isEmpty {
+                    skippedEmptyPrevCount += 1
                     continue
                 }
                 if self.dicdataStore.shouldBeRemoved(data: node.data) {
+                    skippedRemovedCount += 1
                     continue
                 }
                 // 生起確率を取得する。
@@ -80,12 +97,18 @@ extension Kana2Kanji {
                 let nextIndex = indexMap.dualIndex(for: node.range.endIndex)
                 // 文字数がcountと等しい場合登録する
                 if nextIndex.surfaceIndex == surfaceCount {
+                    resultUpdateCount += 1
                     self.updateResultNode(with: node, resultNode: result)
                 } else {
+                    nextUpdateCount += 1
                     self.updateNextNodes(with: node, nextNodes: lattice[index: nextIndex], nBest: N_best)
                 }
             }
         }
+        let traverseMs = enginePerfMillis(since: traverseStart)
+        KanaKanjiConverterEnginePerfLog.emit(
+            "kana2lattice_all total_ms=\(enginePerfMillis(since: totalStart)) index_ms=\(indexMs) lookup_ms=\(lookupMs) lattice_build_ms=\(latticeBuildMs) traverse_ms=\(traverseMs) input_count=\(inputCount) surface_count=\(surfaceCount) lattice_index_count=\(latticeIndices.count) raw_node_count=\(rawNodeCount) visited_node_count=\(visitedNodeCount) skipped_empty_prev_count=\(skippedEmptyPrevCount) skipped_removed_count=\(skippedRemovedCount) result_update_count=\(resultUpdateCount) next_update_count=\(nextUpdateCount) result_prev_count=\(result.prevs.count) n_best=\(N_best) typo=\(needTypoCorrection)"
+        )
         return (result: result, lattice: lattice)
     }
 

@@ -63,9 +63,11 @@ extension Kana2Kanji {
         versionDependentConfig: ConvertRequestOptions.ZenzaiVersionDependentMode
     ) -> (result: LatticeNode, lattice: Lattice, cache: ZenzaiCache) {
         let totalStart = ProcessInfo.processInfo.systemUptime
+        let constraintStart = ProcessInfo.processInfo.systemUptime
         var constraint = zenzaiCache?.getNewConstraint(for: inputData) ?? PrefixConstraint([])
+        let constraintMs = enginePerfMillis(since: constraintStart)
         KanaKanjiConverterEnginePerfLog.emit(
-            "all_zenzai start input_count=\(inputData.input.count) surface_count=\(inputData.convertTarget.count) initial_constraint_bytes=\(constraint.constraint.count) initial_constraint_has_eos=\(constraint.hasEOS) had_cache=\(zenzaiCache != nil) inference_limit=\(inferenceLimit) rich=\(requestRichCandidates)"
+            "all_zenzai start input_count=\(inputData.input.count) surface_count=\(inputData.convertTarget.count) initial_constraint_bytes=\(constraint.constraint.count) initial_constraint_has_eos=\(constraint.hasEOS) had_cache=\(zenzaiCache != nil) constraint_ms=\(constraintMs) inference_limit=\(inferenceLimit) rich=\(requestRichCandidates)"
         )
         debug("initial constraint", constraint)
         let eosNode = LatticeNode.EOSNode
@@ -79,6 +81,7 @@ extension Kana2Kanji {
         while true {
             let draftStart = ProcessInfo.processInfo.systemUptime
             let constraintWasEmpty = constraint.isEmpty
+            let latticeStart = ProcessInfo.processInfo.systemUptime
             let draftResult = if constraint.isEmpty {
                 // 全部を変換する場合はN=2の変換を行う
                 // 実験の結果、ここは2-bestを取ると平均的な速度が最良になることがわかったので、そうしている。
@@ -87,15 +90,22 @@ extension Kana2Kanji {
                 // 制約がついている場合は高速になるので、N=3としている
                 self.kana2lattice_all_with_prefix_constraint(inputData, N_best: 3, constraint: constraint)
             }
+            let latticeMs = enginePerfMillis(since: latticeStart)
             if lattice.isEmpty {
                 // 初回のみ
                 lattice = draftResult.lattice
             }
-            let candidates = draftResult.result.getCandidateData().map(self.processClauseCandidate)
+            let candidateDataStart = ProcessInfo.processInfo.systemUptime
+            let candidateData = draftResult.result.getCandidateData()
+            let candidateDataMs = enginePerfMillis(since: candidateDataStart)
+            let processCandidateStart = ProcessInfo.processInfo.systemUptime
+            let candidates = candidateData.map(self.processClauseCandidate)
+            let processCandidateMs = enginePerfMillis(since: processCandidateStart)
             KanaKanjiConverterEnginePerfLog.emit(
-                "all_zenzai draft elapsed_ms=\(enginePerfMillis(since: draftStart)) constraint_empty=\(constraintWasEmpty) constraint_bytes=\(constraint.constraint.count) result_prev_count=\(draftResult.result.prevs.count) candidate_count=\(candidates.count)"
+                "all_zenzai draft elapsed_ms=\(enginePerfMillis(since: draftStart)) lattice_ms=\(latticeMs) candidate_data_ms=\(candidateDataMs) process_candidate_ms=\(processCandidateMs) constraint_empty=\(constraintWasEmpty) constraint_bytes=\(constraint.constraint.count) result_prev_count=\(draftResult.result.prevs.count) candidate_data_count=\(candidateData.count) candidate_count=\(candidates.count)"
             )
             constructedCandidates.append(contentsOf: zip(draftResult.result.prevs, candidates))
+            let bestStart = ProcessInfo.processInfo.systemUptime
             var best: (Int, Candidate)?
             for (i, cand) in candidates.enumerated() {
                 if let (_, c) = best, cand.value > c.value {
@@ -104,6 +114,10 @@ extension Kana2Kanji {
                     best = (i, cand)
                 }
             }
+            let bestMs = enginePerfMillis(since: bestStart)
+            KanaKanjiConverterEnginePerfLog.emit(
+                "all_zenzai draft_select elapsed_ms=\(bestMs) candidate_count=\(candidates.count) has_best=\(best != nil)"
+            )
             guard var (index, candidate) = best else {
                 debug("best was not found!")
                 // Emptyの場合
