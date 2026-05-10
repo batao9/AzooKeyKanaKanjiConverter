@@ -123,7 +123,7 @@ extension LOUDS {
         binary.withUnsafeBytes { (rawBuffer: UnsafeRawBufferPointer) in
             let ptr = rawBuffer.bindMemory(to: UInt8.self).baseAddress!
             let count = binary.count
-            var offset = strStart + 1 - binary.startIndex
+            var offset = strStart - binary.startIndex
             while offset <= count {
                 if offset == count || ptr[offset] == UInt8(ascii: "\t") {
                     // Compute numeric start relative to base
