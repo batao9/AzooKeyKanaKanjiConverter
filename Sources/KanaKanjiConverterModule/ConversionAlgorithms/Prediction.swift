@@ -220,6 +220,9 @@ extension Kana2Kanji {
         result.reserveCapacity(N_best &+ 1)
         let ccLatter = self.dicdataStore.getCCLatter(lastRcid)
         for data in (dicdata + osuserdict) {
+            if data.ruby == lastRuby {
+                continue
+            }
             let includeMMValueCalculation = DicdataStore.includeMMValueCalculation(data)
             let mmValue: PValue = includeMMValueCalculation ? self.dicdataStore.getMMValue(lastMid, data.mid) : .zero
             let ccValue: PValue = ccLatter.get(data.lcid)

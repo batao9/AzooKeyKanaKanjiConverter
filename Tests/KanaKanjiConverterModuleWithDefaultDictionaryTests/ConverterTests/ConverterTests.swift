@@ -17,11 +17,14 @@ final class ConverterTests: XCTestCase {
         }
     }
 
-    func requestOptions(needTypoCorrection: Bool = false) -> ConvertRequestOptions {
+    func requestOptions(
+        needTypoCorrection: Bool = false,
+        requireJapanesePrediction: ConvertRequestOptions.PredictionMode = .disabled
+    ) -> ConvertRequestOptions {
         let typoMode: ConvertRequestOptions.TypoCorrectionMode = needTypoCorrection ? .enabled : .disabled
         return ConvertRequestOptions(
             N_best: 10,
-            requireJapanesePrediction: .disabled,
+            requireJapanesePrediction: requireJapanesePrediction,
             requireEnglishPrediction: .disabled,
             keyboardLanguage: .ja_JP,
             englishCandidateInRoman2KanaInput: true,
@@ -37,6 +40,16 @@ final class ConverterTests: XCTestCase {
             typoCorrectionMode: typoMode,
             metadata: nil
         )
+    }
+
+    func testPredictionCandidatesDoNotIncludeExactRubyMatch() async throws {
+        let converter = KanaKanjiConverter.withDefaultDictionary()
+        var c = ComposingText()
+        c.insertAtCursorPosition("かんじ", inputStyle: .direct)
+        let results = converter.requestCandidates(c, options: requestOptions(requireJapanesePrediction: .manualMix))
+        XCTAssertFalse(results.predictionResults.contains { candidate in
+            candidate.data.reduce(into: "") { $0 += $1.ruby } == "カンジ"
+        })
     }
 
     func testFullConversion() async throws {
