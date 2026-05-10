@@ -323,11 +323,11 @@ public final class DicdataStore {
             )
             generator.register(surfaceGenerator)
         }
-        // Register TypoCorrectionGenerator only when typo correction is enabled
-        if let inputProcessRange, needTypoCorrection {
+        if let inputProcessRange {
             let typoCorrectionGenerator = TypoCorrectionGenerator(
                 inputs: composingText.input,
-                range: inputProcessRange
+                range: inputProcessRange,
+                needTypoCorrection: needTypoCorrection
             )
             generator.register(typoCorrectionGenerator)
         }

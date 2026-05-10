@@ -1,8 +1,8 @@
 import SwiftUtils
 
 struct TypoCorrectionGenerator: Sendable {
-    init(inputs: [ComposingText.InputElement], range: ProcessRange) {
-        self.maxPenalty = 3.5 * 3
+    init(inputs: [ComposingText.InputElement], range: ProcessRange, needTypoCorrection: Bool) {
+        self.maxPenalty = needTypoCorrection ? 3.5 * 3 : 0
         self.inputs = inputs
         self.range = range
 
@@ -14,7 +14,7 @@ struct TypoCorrectionGenerator: Sendable {
                 if count <= j {
                     return []
                 }
-                return Self.getTypo(inputs[range.leftIndex + i ... range.leftIndex + j])
+                return Self.getTypo(inputs[range.leftIndex + i ... range.leftIndex + j], frozen: !needTypoCorrection)
             }
         }
         // 深さ優先で列挙する
