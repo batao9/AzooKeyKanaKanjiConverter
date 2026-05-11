@@ -10,7 +10,149 @@ import Algorithms
 import Foundation
 import SwiftUtils
 
+struct FullInputLatticeSeed {
+    struct NodeSeed {
+        let data: DicdataElement
+        let range: Lattice.LatticeRange
+        let hasBOS: Bool
+
+        init(_ node: LatticeNode) {
+            self.data = node.data
+            self.range = node.range
+            self.hasBOS = node.range.startIndex.isZero
+        }
+
+        func makeNode() -> LatticeNode {
+            let node = LatticeNode(data: self.data, range: self.range)
+            if self.hasBOS {
+                node.prevs.append(.BOSNode())
+            }
+            return node
+        }
+    }
+
+    let inputCount: Int
+    let surfaceCount: Int
+    let indexMap: LatticeDualIndexMap
+    let latticeIndices: [LatticeDualIndexMap.DualIndex]
+    private let rawNodeSeeds: [[NodeSeed]]
+
+    init(
+        inputCount: Int,
+        surfaceCount: Int,
+        indexMap: LatticeDualIndexMap,
+        latticeIndices: [LatticeDualIndexMap.DualIndex],
+        rawNodes: [[LatticeNode]]
+    ) {
+        self.inputCount = inputCount
+        self.surfaceCount = surfaceCount
+        self.indexMap = indexMap
+        self.latticeIndices = latticeIndices
+        self.rawNodeSeeds = rawNodes.map { nodes in
+            nodes.map(NodeSeed.init)
+        }
+    }
+
+    func makeRawNodes() -> [[LatticeNode]] {
+        self.rawNodeSeeds.map { nodes in
+            nodes.map { $0.makeNode() }
+        }
+    }
+
+    func makeLattice() -> Lattice {
+        Lattice(
+            inputCount: self.inputCount,
+            surfaceCount: self.surfaceCount,
+            rawNodes: self.makeRawNodes()
+        )
+    }
+}
+
 extension Kana2Kanji {
+    func makeFullInputLatticeSeed(
+        _ inputData: ComposingText,
+        needTypoCorrection: Bool,
+        dicdataStoreState: DicdataStoreState
+    ) -> FullInputLatticeSeed {
+        self.makeFullInputLatticeSeedAndLattice(
+            inputData,
+            needTypoCorrection: needTypoCorrection,
+            dicdataStoreState: dicdataStoreState
+        ).seed
+    }
+
+    func makeFullInputLatticeSeedAndLattice(
+        _ inputData: ComposingText,
+        needTypoCorrection: Bool,
+        dicdataStoreState: DicdataStoreState
+    ) -> (seed: FullInputLatticeSeed, lattice: Lattice) {
+        let inputCount: Int = inputData.input.count
+        let surfaceCount = inputData.convertTarget.count
+        let indexMap = LatticeDualIndexMap(inputData)
+        let latticeIndices = indexMap.indices(inputCount: inputCount, surfaceCount: surfaceCount)
+        let rawNodes = self.lookupFullInputRawNodes(
+            inputData,
+            latticeIndices: latticeIndices,
+            needTypoCorrection: needTypoCorrection,
+            dicdataStoreState: dicdataStoreState
+        )
+        let seed = FullInputLatticeSeed(
+            inputCount: inputCount,
+            surfaceCount: surfaceCount,
+            indexMap: indexMap,
+            latticeIndices: latticeIndices,
+            rawNodes: rawNodes
+        )
+        let lattice = Lattice(
+            inputCount: inputCount,
+            surfaceCount: surfaceCount,
+            rawNodes: rawNodes
+        )
+        return (seed: seed, lattice: lattice)
+    }
+
+    private func lookupFullInputRawNodes(
+        _ inputData: ComposingText,
+        latticeIndices: [LatticeDualIndexMap.DualIndex],
+        needTypoCorrection: Bool,
+        dicdataStoreState: DicdataStoreState
+    ) -> [[LatticeNode]] {
+        latticeIndices.map { index in
+            let inputRange: (startIndex: Int, endIndexRange: Range<Int>?)? = if let iIndex = index.inputIndex {
+                (iIndex, nil)
+            } else {
+                nil
+            }
+            let surfaceRange: (startIndex: Int, endIndexRange: Range<Int>?)? = if let sIndex = index.surfaceIndex {
+                (sIndex, nil)
+            } else {
+                nil
+            }
+            return dicdataStore.lookupDicdata(
+                composingText: inputData,
+                inputRange: inputRange,
+                surfaceRange: surfaceRange,
+                needTypoCorrection: needTypoCorrection,
+                state: dicdataStoreState
+            )
+        }
+    }
+
+    func kana2lattice_all_from_seed(_ seed: FullInputLatticeSeed, N_best: Int) -> (result: LatticeNode, lattice: Lattice) {
+        self.kana2lattice_all_from_seed(seed, lattice: seed.makeLattice(), N_best: N_best)
+    }
+
+    func kana2lattice_all_from_seed(_ seed: FullInputLatticeSeed, lattice: Lattice, N_best: Int) -> (result: LatticeNode, lattice: Lattice) {
+        let result = self.traverseFullInputLattice(
+            lattice,
+            N_best: N_best,
+            indexMap: seed.indexMap,
+            latticeIndices: seed.latticeIndices,
+            surfaceCount: seed.surfaceCount
+        )
+        return (result: result, lattice: lattice)
+    }
+
     /// カナを漢字に変換する関数, 前提はなくかな列が与えられた場合。
     /// - Parameters:
     ///   - inputData: 入力データ。
@@ -35,7 +177,6 @@ extension Kana2Kanji {
         dicdataStoreState: DicdataStoreState
     ) -> (result: LatticeNode, lattice: Lattice) {
         debug("新規に計算を行います。inputされた文字列は\(inputData.input.count)文字分の\(inputData.convertTarget)")
-        let result: LatticeNode = LatticeNode.EOSNode
         let inputCount: Int = inputData.input.count
         let surfaceCount = inputData.convertTarget.count
         let indexMap = LatticeDualIndexMap(inputData)
@@ -70,6 +211,24 @@ extension Kana2Kanji {
             )
         }
         // 「i文字目から始まるnodes」に対して
+        let result = self.traverseFullInputLattice(
+            lattice,
+            N_best: N_best,
+            indexMap: indexMap,
+            latticeIndices: latticeIndices,
+            surfaceCount: surfaceCount
+        )
+        return (result: result, lattice: lattice)
+    }
+
+    private func traverseFullInputLattice(
+        _ lattice: Lattice,
+        N_best: Int,
+        indexMap: LatticeDualIndexMap,
+        latticeIndices: [LatticeDualIndexMap.DualIndex],
+        surfaceCount: Int
+    ) -> LatticeNode {
+        let result: LatticeNode = LatticeNode.EOSNode
         for (isHead, nodeArray) in lattice.indexedNodes(indices: latticeIndices) {
             // それぞれのnodeに対して
             for node in nodeArray {
@@ -98,7 +257,7 @@ extension Kana2Kanji {
                 }
             }
         }
-        return (result: result, lattice: lattice)
+        return result
     }
 
     func updateResultNode(with node: LatticeNode, resultNode: LatticeNode) {

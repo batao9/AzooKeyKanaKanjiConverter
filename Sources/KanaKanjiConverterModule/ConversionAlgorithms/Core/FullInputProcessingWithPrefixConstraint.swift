@@ -60,6 +60,31 @@ extension Kana2Kanji {
         return (ci, false)
     }
 
+    func kana2lattice_all_with_prefix_constraint_from_seed(
+        _ seed: FullInputLatticeSeed,
+        N_best: Int,
+        constraint: PrefixConstraint
+    ) -> (result: LatticeNode, lattice: Lattice) {
+        self.kana2lattice_all_with_prefix_constraint_from_seed(seed, lattice: seed.makeLattice(), N_best: N_best, constraint: constraint)
+    }
+
+    func kana2lattice_all_with_prefix_constraint_from_seed(
+        _ seed: FullInputLatticeSeed,
+        lattice: Lattice,
+        N_best: Int,
+        constraint: PrefixConstraint
+    ) -> (result: LatticeNode, lattice: Lattice) {
+        let result = self.traverseFullInputLatticeWithPrefixConstraint(
+            lattice,
+            N_best: N_best,
+            constraint: constraint,
+            indexMap: seed.indexMap,
+            latticeIndices: seed.latticeIndices,
+            surfaceCount: seed.surfaceCount
+        )
+        return (result: result, lattice: lattice)
+    }
+
     /// カナを漢字に変換する関数, 前提はなくかな列が与えられた場合。
     /// - Parameters:
     ///   - inputData: 入力データ。
@@ -84,7 +109,6 @@ extension Kana2Kanji {
         dicdataStoreState: DicdataStoreState
     ) -> (result: LatticeNode, lattice: Lattice) {
         debug("新規に計算を行います。inputされた文字列は\(inputData.input.count)文字分の\(inputData.convertTarget)。制約は\(constraint)")
-        let result: LatticeNode = LatticeNode.EOSNode
         let inputCount: Int = inputData.input.count
         let surfaceCount = inputData.convertTarget.count
         let indexMap = LatticeDualIndexMap(inputData)
@@ -119,6 +143,26 @@ extension Kana2Kanji {
             )
         }
         // 「i文字目から始まるnodes」に対して
+        let result = self.traverseFullInputLatticeWithPrefixConstraint(
+            lattice,
+            N_best: N_best,
+            constraint: constraint,
+            indexMap: indexMap,
+            latticeIndices: latticeIndices,
+            surfaceCount: surfaceCount
+        )
+        return (result: result, lattice: lattice)
+    }
+
+    private func traverseFullInputLatticeWithPrefixConstraint(
+        _ lattice: Lattice,
+        N_best: Int,
+        constraint: PrefixConstraint,
+        indexMap: LatticeDualIndexMap,
+        latticeIndices: [LatticeDualIndexMap.DualIndex],
+        surfaceCount: Int
+    ) -> LatticeNode {
+        let result: LatticeNode = LatticeNode.EOSNode
         for (isHead, nodeArray) in lattice.indexedNodes(indices: latticeIndices) {
             // それぞれのnodeに対して
             for node in nodeArray {
@@ -222,7 +266,7 @@ extension Kana2Kanji {
                 }
             }
         }
-        return (result: result, lattice: lattice)
+        return result
     }
 
     /// 逐次入力の差分更新を活用してLatticeを構築

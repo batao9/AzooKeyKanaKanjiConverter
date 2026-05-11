@@ -135,6 +135,19 @@ public final class DicdataStore {
         return Self.getPenalty(data: data) < -d
     }
 
+    private func defaultDictionaryIdentifier(for query: String) -> String {
+        let escaped = DictionaryBuilder.escapedIdentifier(query)
+        let escapedURL = self.dictionaryURL.appendingPathComponent("louds/\(escaped).louds", isDirectory: false)
+        if FileManager.default.fileExists(atPath: escapedURL.path) {
+            return escaped
+        }
+        let legacyURL = self.dictionaryURL.appendingPathComponent("louds/\(query).louds", isDirectory: false)
+        if FileManager.default.fileExists(atPath: legacyURL.path) {
+            return query
+        }
+        return escaped
+    }
+
     func loadLOUDS(query: String, state: DicdataStoreState) -> LOUDS? {
         if query == "user" {
             if state.userDictionaryHasLoaded {
@@ -177,8 +190,7 @@ public final class DicdataStore {
             return self.loudses[query]
         }
 
-        // 一部のASCII文字は共通のエスケープ関数で処理する
-        let identifier = DictionaryBuilder.escapedIdentifier(query)
+        let identifier = self.defaultDictionaryIdentifier(for: query)
 
         if let louds = LOUDS.load(identifier, dictionaryURL: self.dictionaryURL) {
             self.loudses[query] = louds
@@ -311,11 +323,11 @@ public final class DicdataStore {
             )
             generator.register(surfaceGenerator)
         }
-        // Register TypoCorrectionGenerator only when typo correction is enabled
-        if let inputProcessRange, needTypoCorrection {
+        if let inputProcessRange {
             let typoCorrectionGenerator = TypoCorrectionGenerator(
                 inputs: composingText.input,
-                range: inputProcessRange
+                range: inputProcessRange,
+                needTypoCorrection: needTypoCorrection
             )
             generator.register(typoCorrectionGenerator)
         }
@@ -484,10 +496,9 @@ public final class DicdataStore {
                 $0.metadata = .isLearned
             }
         }
+        let defaultIdentifier = self.defaultDictionaryIdentifier(for: identifier)
         for (key, value) in dict {
-            // Default dictionary shards are stored under escaped identifiers with concatenated shard suffix
-            let escaped = DictionaryBuilder.escapedIdentifier(identifier)
-            let fileID = "\(escaped)\(key)"
+            let fileID = "\(defaultIdentifier)\(key)"
             data.append(contentsOf: LOUDS.getDataForLoudstxt3(
                 fileID,
                 indices: value.map { $0 & DictionaryBuilder.localMask },

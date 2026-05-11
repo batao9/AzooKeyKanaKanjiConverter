@@ -1,8 +1,8 @@
 import SwiftUtils
 
 struct TypoCorrectionGenerator: Sendable {
-    init(inputs: [ComposingText.InputElement], range: ProcessRange) {
-        self.maxPenalty = 3.5 * 3
+    init(inputs: [ComposingText.InputElement], range: ProcessRange, needTypoCorrection: Bool) {
+        self.maxPenalty = needTypoCorrection ? 3.5 * 3 : 0
         self.inputs = inputs
         self.range = range
 
@@ -14,7 +14,7 @@ struct TypoCorrectionGenerator: Sendable {
                 if count <= j {
                     return []
                 }
-                return Self.getTypo(inputs[range.leftIndex + i ... range.leftIndex + j])
+                return Self.getTypo(inputs[range.leftIndex + i ... range.leftIndex + j], frozen: !needTypoCorrection)
             }
         }
         // 深さ優先で列挙する
@@ -235,7 +235,7 @@ struct TypoCorrectionGenerator: Sendable {
         case other
     }
 
-    private static func getTypo(_ elements: some Collection<ComposingText.InputElement>) -> [TypoCandidate] {
+    private static func getTypo(_ elements: some Collection<ComposingText.InputElement>, frozen: Bool = false) -> [TypoCandidate] {
         guard !elements.isEmpty else {
             return []
         }
@@ -264,7 +264,7 @@ struct TypoCorrectionGenerator: Sendable {
         }
         switch inputStylesType {
         case .onlyDirect:
-            let dictionary: [String: [TypoCandidate]] = Self.directPossibleTypo
+            let dictionary: [String: [TypoCandidate]] = frozen ? [:] : Self.directPossibleTypo
             if key.count == 1 {
                 var result = dictionary[key, default: []]
                 // そのまま
@@ -274,7 +274,7 @@ struct TypoCorrectionGenerator: Sendable {
                 return dictionary[key, default: []]
             }
         case .onlyRoman2KanaCompatible:
-            let dictionary: [String: [TypoCandidate]] = Self.roman2KanaPossibleTypo
+            let dictionary: [String: [TypoCandidate]] = frozen ? [:] : Self.roman2KanaPossibleTypo
             if key.count == 1 {
                 var result = dictionary[key, default: []]
                 // そのまま

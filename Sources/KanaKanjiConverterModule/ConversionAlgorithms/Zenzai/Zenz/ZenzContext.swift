@@ -59,6 +59,9 @@ final class ZenzContext {
         llama_backend_init()
         var model_params = llama_model_default_params()
         model_params.use_mmap = true
+        #if Zenzai
+        model_params.n_gpu_layers = KanaKanjiConverterEngineRuntime.resolvedGpuLayerCount
+        #endif
         #if ZenzaiCPU
         // CPU 専用: GPU へのオフロードを無効化
         model_params.n_gpu_layers = 0
