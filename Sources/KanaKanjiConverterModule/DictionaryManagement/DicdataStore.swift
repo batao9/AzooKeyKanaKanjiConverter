@@ -496,8 +496,9 @@ public final class DicdataStore {
                 $0.metadata = .isLearned
             }
         }
+        let defaultIdentifier = self.defaultDictionaryIdentifier(for: identifier)
         for (key, value) in dict {
-            let fileID = "\(self.defaultDictionaryIdentifier(for: identifier))\(key)"
+            let fileID = "\(defaultIdentifier)\(key)"
             data.append(contentsOf: LOUDS.getDataForLoudstxt3(
                 fileID,
                 indices: value.map { $0 & DictionaryBuilder.localMask },

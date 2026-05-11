@@ -19,7 +19,7 @@ struct FullInputLatticeSeed {
         init(_ node: LatticeNode) {
             self.data = node.data
             self.range = node.range
-            self.hasBOS = !node.prevs.isEmpty
+            self.hasBOS = node.range.startIndex.isZero
         }
 
         func makeNode() -> LatticeNode {

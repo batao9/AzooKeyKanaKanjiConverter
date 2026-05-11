@@ -98,25 +98,35 @@ extension Kana2Kanji {
         }
         var inferenceLimit = inferenceLimit
         var latticeSeed: FullInputLatticeSeed?
+        func reusableLattice(from seed: FullInputLatticeSeed, preprocessedLattice: Lattice?) -> Lattice {
+            if let preprocessedLattice {
+                return preprocessedLattice
+            }
+            if !lattice.isEmpty {
+                lattice.resetNodeStates()
+                return lattice
+            }
+            return seed.makeLattice()
+        }
         while true {
             let start = Date()
             let preprocessedLattice: Lattice?
-            if latticeSeed != nil {
-                preprocessedLattice = nil
-            } else if !lattice.isEmpty {
+            if !lattice.isEmpty {
                 // 今回の`all_zenzai`の呼び出し内部で使われているキャッシュ（lattice）が存在する場合はそちらを優先する
                 lattice.resetNodeStates()
                 preprocessedLattice = lattice
-            } else {
+            } else if latticeSeed == nil {
                 // latticeがまだemptyの場合、zenzaiCache側に存在するキャッシュの活用を試みる
                 preprocessedLattice = zenzaiCache?.getPreprocessedLattice(for: inputData, kanaKanji: self, dicdataStoreState: dicdataStoreState)
+            } else {
+                preprocessedLattice = nil
             }
             let draftResult: (result: LatticeNode, lattice: Lattice)
             if constraint.isEmpty {
                 // 全部を変換する場合はN=2の変換を行う
                 // 実験の結果、ここは2-bestを取ると平均的な速度が最良になることがわかったので、そうしている。
                 if let latticeSeed {
-                    draftResult = self.kana2lattice_all_from_seed(latticeSeed, N_best: 2)
+                    draftResult = self.kana2lattice_all_from_seed(latticeSeed, lattice: reusableLattice(from: latticeSeed, preprocessedLattice: preprocessedLattice), N_best: 2)
                 } else if preprocessedLattice == nil {
                     let (seed, seedLattice) = self.makeFullInputLatticeSeedAndLattice(inputData, needTypoCorrection: false, dicdataStoreState: dicdataStoreState)
                     latticeSeed = seed
@@ -127,7 +137,7 @@ extension Kana2Kanji {
             } else {
                 // 制約がついている場合は高速になるので、N=3としている
                 if let latticeSeed {
-                    draftResult = self.kana2lattice_all_with_prefix_constraint_from_seed(latticeSeed, N_best: 3, constraint: constraint)
+                    draftResult = self.kana2lattice_all_with_prefix_constraint_from_seed(latticeSeed, lattice: reusableLattice(from: latticeSeed, preprocessedLattice: preprocessedLattice), N_best: 3, constraint: constraint)
                 } else if preprocessedLattice == nil {
                     let (seed, seedLattice) = self.makeFullInputLatticeSeedAndLattice(inputData, needTypoCorrection: false, dicdataStoreState: dicdataStoreState)
                     latticeSeed = seed
@@ -201,7 +211,7 @@ extension Kana2Kanji {
                                 let alternativePrefixConstraint = PrefixConstraint(alternativeConstraint.prefixConstraint)
                                 let draftResult: (result: LatticeNode, lattice: Lattice)
                                 if let latticeSeed {
-                                    draftResult = self.kana2lattice_all_with_prefix_constraint_from_seed(latticeSeed, N_best: 3, constraint: alternativePrefixConstraint)
+                                    draftResult = self.kana2lattice_all_with_prefix_constraint_from_seed(latticeSeed, lattice: reusableLattice(from: latticeSeed, preprocessedLattice: nil), N_best: 3, constraint: alternativePrefixConstraint)
                                 } else {
                                     lattice.resetNodeStates()
                                     draftResult = self.kana2lattice_all_with_prefix_constraint(inputData, N_best: 3, constraint: alternativePrefixConstraint, preprocessedLattice: lattice, dicdataStoreState: dicdataStoreState)

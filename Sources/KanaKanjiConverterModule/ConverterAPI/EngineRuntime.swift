@@ -7,8 +7,10 @@ public enum KanaKanjiConverterEngineRuntime {
 
         func configure(gpuLayerCount: Int32) {
             self.lock.lock()
+            defer {
+                self.lock.unlock()
+            }
             self.gpuLayerCount = max(0, gpuLayerCount)
-            self.lock.unlock()
         }
 
         func resolvedGpuLayerCount() -> Int32 {
