@@ -7,6 +7,7 @@ package final class DicdataStoreState {
     }
 
     var keyboardLanguage: KeyboardLanguage = .ja_JP
+    var keyboardTypoCorrection: KeyboardTypoCorrection?
     private(set) var dynamicUserDictionary: [DicdataElement] = []
     private(set) var dynamicUserShortcuts: [DicdataElement] = []
     var learningMemoryManager: LearningManager
@@ -38,6 +39,19 @@ package final class DicdataStoreState {
 
     func updateKeyboardLanguage(_ newLanguage: KeyboardLanguage) {
         self.keyboardLanguage = newLanguage
+    }
+
+    func prepareKeyboardTypoCorrection(
+        composingText: ComposingText,
+        enabled: Bool,
+        maxSpanLength: Int
+    ) {
+        self.keyboardTypoCorrection = enabled
+            ? KeyboardTypoCorrection(
+                composingText: composingText,
+                maxSpanLength: maxSpanLength
+            )
+            : nil
     }
 
     func updateLearningConfig(_ newConfig: LearningConfig) {
@@ -77,7 +91,9 @@ package final class DicdataStoreState {
     func importDynamicUserDictionary(_ dicdata: [DicdataElement], shortcuts: [DicdataElement] = []) {
         self.dynamicUserDictionary = dicdata
         self.dynamicUserDictionary.mutatingForEach {
-            $0.metadata = .isFromUserDictionary
+            $0.metadata = $0.metadata.contains(.isKeyboardTypoCorrection)
+                ? [.isFromUserDictionary, .isKeyboardTypoCorrection]
+                : .isFromUserDictionary
         }
         self.dynamicUserShortcuts = shortcuts
         self.dynamicUserShortcuts.mutatingForEach {

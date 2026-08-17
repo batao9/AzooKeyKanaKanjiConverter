@@ -23,6 +23,7 @@ public final class KanaKanjiConverter {
         var ngramCache: NGramCache = .init()
         var predictiveInputCache: PredictiveInputCacheEntry?
         var stablePredictionCandidateCache: StablePredictionCandidateCacheEntry?
+        var experimentalKeyboardTypoCorrection: Bool?
     }
     private typealias SessionID = String
     private static let defaultSessionID: SessionID = "default"
@@ -1129,7 +1130,20 @@ public final class KanaKanjiConverter {
         if options.shouldResetMemory {
             self.resetMemory()
         }
+        if let previous = self.currentSessionState.experimentalKeyboardTypoCorrection,
+           previous != options.experimentalKeyboardTypoCorrection
+        {
+            self.stopComposition()
+        }
+        self.updateCurrentSessionState {
+            $0.experimentalKeyboardTypoCorrection = options.experimentalKeyboardTypoCorrection
+        }
         self.dicdataStoreState.updateIfRequired(options: options)
+        self.dicdataStoreState.prepareKeyboardTypoCorrection(
+            composingText: inputData,
+            enabled: options.experimentalKeyboardTypoCorrection,
+            maxSpanLength: self.converter.dicdataStore.maxlength
+        )
         let needTypoCorrection = self.isClassicTypoCorrectionEnabled(options)
 
         guard let result = self.convertToLattice(inputData, N_best: options.N_best, zenzaiMode: options.zenzaiMode, needTypoCorrection: needTypoCorrection) else {

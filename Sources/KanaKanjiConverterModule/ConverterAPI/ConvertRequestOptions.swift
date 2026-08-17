@@ -51,9 +51,10 @@ public struct ConvertRequestOptions: Sendable {
     ///   - textReplacer: 予測変換のための置換機を指定します。
     ///   - specialCandidateProviders: 特殊変換を実施する変換関数を挿入します
     ///   - experimentalZenzaiPredictiveInput: Zenzai の予測入力フォールバックを有効にします（experimental）。
+    ///   - experimentalKeyboardTypoCorrection: ローマ字入力向けの SmallTSU・DoubleNN 補正を有効にします（experimental）。
     ///   - typoCorrectionMode: 通常の変換リクエストで classic typo correction をどう扱うかを指定します。
     ///   - metadata: メタデータを指定します。詳しくは`ConvertRequestOptions.Metadata`を参照してください。
-    public init(N_best: Int = 10, requireJapanesePrediction: PredictionMode, requireEnglishPrediction: PredictionMode, keyboardLanguage: KeyboardLanguage, englishCandidateInRoman2KanaInput: Bool = false, fullWidthRomanCandidate: Bool = false, halfWidthKanaCandidate: Bool = false, learningType: LearningType, maxMemoryCount: Int = 65536, shouldResetMemory: Bool = false, memoryDirectoryURL: URL, sharedContainerURL: URL, textReplacer: TextReplacer, specialCandidateProviders: [any SpecialCandidateProvider]?, zenzaiMode: ZenzaiMode = .off, preloadDictionary: Bool = false, experimentalZenzaiPredictiveInput: Bool = false, typoCorrectionMode: TypoCorrectionMode = .automatic, metadata: ConvertRequestOptions.Metadata?) {
+    public init(N_best: Int = 10, requireJapanesePrediction: PredictionMode, requireEnglishPrediction: PredictionMode, keyboardLanguage: KeyboardLanguage, englishCandidateInRoman2KanaInput: Bool = false, fullWidthRomanCandidate: Bool = false, halfWidthKanaCandidate: Bool = false, learningType: LearningType, maxMemoryCount: Int = 65536, shouldResetMemory: Bool = false, memoryDirectoryURL: URL, sharedContainerURL: URL, textReplacer: TextReplacer, specialCandidateProviders: [any SpecialCandidateProvider]?, zenzaiMode: ZenzaiMode = .off, preloadDictionary: Bool = false, experimentalZenzaiPredictiveInput: Bool = false, experimentalKeyboardTypoCorrection: Bool = false, typoCorrectionMode: TypoCorrectionMode = .automatic, metadata: ConvertRequestOptions.Metadata?) {
         self.N_best = N_best
         self.requireJapanesePrediction = requireJapanesePrediction
         self.requireEnglishPrediction = requireEnglishPrediction
@@ -72,6 +73,7 @@ public struct ConvertRequestOptions: Sendable {
         self.zenzaiMode = zenzaiMode
         self.preloadDictionary = preloadDictionary
         self.experimentalZenzaiPredictiveInput = experimentalZenzaiPredictiveInput
+        self.experimentalKeyboardTypoCorrection = experimentalKeyboardTypoCorrection
         self.typoCorrectionMode = typoCorrectionMode
 
         if shouldResetMemory {
@@ -101,6 +103,8 @@ public struct ConvertRequestOptions: Sendable {
     public var preloadDictionary: Bool
     /// Enable experimental predictive input for Zenzai fallback candidates.
     public var experimentalZenzaiPredictiveInput: Bool
+    /// Enable bounded SmallTSU and DoubleNN rewrites for roman-to-kana input.
+    public var experimentalKeyboardTypoCorrection: Bool
     /// 通常の変換リクエストで classic typo correction をどう扱うかの設定。
     public var typoCorrectionMode: TypoCorrectionMode
     // メタデータ

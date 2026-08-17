@@ -103,4 +103,6 @@ public struct DicdataElementMetadata: OptionSet, Sendable, Hashable, Equatable {
     public static let isLearned = DicdataElementMetadata(rawValue: 1 << 0) // 1
     /// ユーザ辞書から得られた候補にはこのフラグを立てる
     public static let isFromUserDictionary = DicdataElementMetadata(rawValue: 1 << 1) // 2
+    /// ローマ字入力の原surfaceにだけ適用する誤入力辞書エントリ
+    public static let isKeyboardTypoCorrection = DicdataElementMetadata(rawValue: 1 << 2) // 4
 }

@@ -281,6 +281,7 @@ public final class DicdataStore {
 
         var typoCorrectionGenerator: TypoCorrectionGenerator?
         var surfaceGenerator: SurfaceGenerator?
+        var keyboardTypoCorrectionGenerator: KeyboardTypoCorrection.Generator?
 
         mutating func register(_ generator: TypoCorrectionGenerator) {
             self.typoCorrectionGenerator = generator
@@ -288,12 +289,19 @@ public final class DicdataStore {
         mutating func register(_ generator: SurfaceGenerator) {
             self.surfaceGenerator = generator
         }
+        mutating func register(_ generator: KeyboardTypoCorrection.Generator) {
+            self.keyboardTypoCorrectionGenerator = generator
+        }
         mutating func setUnreachablePath<C: Collection<Character>>(target: C) where C.Indices == Range<Int> {
             self.typoCorrectionGenerator?.setUnreachablePath(target: target)
             self.surfaceGenerator?.setUnreachablePath(target: target)
+            self.keyboardTypoCorrectionGenerator?.setUnreachablePath(target: target)
         }
         mutating func next() -> ([Character], (endIndex: Lattice.LatticeIndex, penalty: PValue))? {
             if let next = self.surfaceGenerator?.next() {
+                return next
+            }
+            if let next = self.keyboardTypoCorrectionGenerator?.next() {
                 return next
             }
             if let next = self.typoCorrectionGenerator?.next() {
@@ -316,12 +324,18 @@ public final class DicdataStore {
         temporaryMemoryDicdata: [DicdataElement]
     ) {
         var generator = UnifiedGenerator()
+        let originalSurface = Array(composingText.convertTarget.toKatakana())
         if let surfaceProcessRange {
             let surfaceGenerator = UnifiedGenerator.SurfaceGenerator(
-                surface: Array(composingText.convertTarget.toKatakana()),
+                surface: originalSurface,
                 range: surfaceProcessRange
             )
             generator.register(surfaceGenerator)
+            if let keyboardTypoCorrectionGenerator = state.keyboardTypoCorrection?.generator(
+                range: surfaceProcessRange
+            ) {
+                generator.register(keyboardTypoCorrectionGenerator)
+            }
         }
         if let inputProcessRange {
             let typoCorrectionGenerator = TypoCorrectionGenerator(
@@ -382,7 +396,21 @@ public final class DicdataStore {
             if !state.dynamicUserDictionary.isEmpty {
                 // 動的ユーザ辞書にデータがある場合、この位置で処理する
                 let katakanaString = String(characters).toKatakana()
-                let dynamicUserDictResult = self.getMatchDynamicUserDict(katakanaString, state: state)
+                let dynamicUserDictResult = self.getMatchDynamicUserDict(
+                    katakanaString,
+                    state: state
+                ).filter { data in
+                    !data.metadata.contains(.isKeyboardTypoCorrection)
+                        || Self.allowsKeyboardTypoDictionaryLookup(
+                            characters: characters,
+                            info: info,
+                            originalSurface: originalSurface,
+                            inputProcessRange: inputProcessRange,
+                            surfaceProcessRange: surfaceProcessRange,
+                            needTypoCorrection: needTypoCorrection,
+                            correction: state.keyboardTypoCorrection
+                        )
+                }
                 updated = updated || !dynamicUserDictResult.isEmpty
                 for data in dynamicUserDictResult {
                     let depth = characters.endIndex
@@ -432,6 +460,40 @@ public final class DicdataStore {
                 minCount < $0.key + 1 ? $0.value : []
             }
         )
+    }
+
+    private static func allowsKeyboardTypoDictionaryLookup(
+        characters: [Character],
+        info: (endIndex: Lattice.LatticeIndex, penalty: PValue),
+        originalSurface: [Character],
+        inputProcessRange: TypoCorrectionGenerator.ProcessRange?,
+        surfaceProcessRange: TypoCorrectionGenerator.ProcessRange?,
+        needTypoCorrection: Bool,
+        correction: KeyboardTypoCorrection?
+    ) -> Bool {
+        switch info.endIndex {
+        case .surface(let end):
+            guard let surfaceProcessRange,
+                  originalSurface.indices.contains(surfaceProcessRange.leftIndex),
+                  originalSurface.indices.contains(end),
+                  surfaceProcessRange.leftIndex <= end,
+                  Array(originalSurface[surfaceProcessRange.leftIndex ... end]) == characters
+            else {
+                return false
+            }
+            return correction?.allowsKeyboardTypoDictionaryLookup(
+                start: surfaceProcessRange.leftIndex,
+                end: end
+            ) == true
+        case .input(let end):
+            guard !needTypoCorrection, let inputProcessRange else {
+                return false
+            }
+            return correction?.allowsKeyboardTypoDictionaryInputLookup(
+                start: inputProcessRange.leftIndex,
+                end: end
+            ) == true
+        }
     }
     /// prefixを起点として、それに続く語（prefix match）をLOUDS上で探索する関数。
     /// - Parameters:
@@ -898,7 +960,9 @@ public final class DicdataStore {
 
     /// 動的ユーザ辞書からrubyに先頭一致する語を返す。
     func getPrefixMatchDynamicUserDict(_ ruby: some StringProtocol, state: DicdataStoreState) -> [DicdataElement] {
-        state.dynamicUserDictionary.filter {$0.ruby.hasPrefix(ruby)}
+        state.dynamicUserDictionary.filter {
+            $0.ruby.hasPrefix(ruby) && !$0.metadata.contains(.isKeyboardTypoCorrection)
+        }
     }
 
     private func loadCCLine(_ former: Int) {
