@@ -324,8 +324,13 @@ public final class DicdataStore {
         temporaryMemoryDicdata: [DicdataElement]
     ) {
         var generator = UnifiedGenerator()
-        let originalSurface = Array(composingText.convertTarget.toKatakana())
-        if let surfaceProcessRange {
+        let originalSurface: [Character]?
+        if surfaceProcessRange == nil {
+            originalSurface = nil
+        } else {
+            originalSurface = Array(composingText.convertTarget.toKatakana())
+        }
+        if let surfaceProcessRange, let originalSurface {
             let surfaceGenerator = UnifiedGenerator.SurfaceGenerator(
                 surface: originalSurface,
                 range: surfaceProcessRange
@@ -465,7 +470,7 @@ public final class DicdataStore {
     private static func allowsKeyboardTypoDictionaryLookup(
         characters: [Character],
         info: (endIndex: Lattice.LatticeIndex, penalty: PValue),
-        originalSurface: [Character],
+        originalSurface: [Character]?,
         inputProcessRange: TypoCorrectionGenerator.ProcessRange?,
         surfaceProcessRange: TypoCorrectionGenerator.ProcessRange?,
         needTypoCorrection: Bool,
@@ -473,7 +478,8 @@ public final class DicdataStore {
     ) -> Bool {
         switch info.endIndex {
         case .surface(let end):
-            guard let surfaceProcessRange,
+            guard let originalSurface,
+                  let surfaceProcessRange,
                   originalSurface.indices.contains(surfaceProcessRange.leftIndex),
                   originalSurface.indices.contains(end),
                   surfaceProcessRange.leftIndex <= end,
