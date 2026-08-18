@@ -8,6 +8,24 @@
 
 import Foundation
 
+func makeKeyboardTypoCorrectionProvenance(
+    data: DicdataElement,
+    range: Lattice.LatticeRange
+) -> KeyboardTypoCorrectionProvenance? {
+    let kind: KeyboardTypoCorrectionProvenance.Kind
+    if data.metadata.contains(.isKeyboardSmallTsuCorrection) {
+        kind = .smallTsu
+    } else if data.metadata.contains(.isKeyboardDoubleNnCorrection) {
+        kind = .doubleNn
+    } else {
+        return nil
+    }
+    guard case .surface(let from, let to) = range else {
+        return nil
+    }
+    return .init(kind: kind, originalSurfaceRange: from ..< to)
+}
+
 /// ラティスのノード。これを用いて計算する。
 public final class LatticeNode {
     /// このノードが保持する辞書データ
@@ -28,6 +46,10 @@ public final class LatticeNode {
         self.data = data
         self.values = [data.value()]
         self.range = range
+    }
+
+    var keyboardTypoCorrectionProvenance: KeyboardTypoCorrectionProvenance? {
+        makeKeyboardTypoCorrectionProvenance(data: self.data, range: self.range)
     }
 
     /// `LatticeNode`の持っている情報を反映した`RegisteredNode`を作成する

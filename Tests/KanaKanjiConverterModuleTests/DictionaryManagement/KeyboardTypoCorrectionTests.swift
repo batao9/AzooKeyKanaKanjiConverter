@@ -10,7 +10,9 @@ final class KeyboardTypoCorrectionTests: XCTestCase {
         return composingText
     }
 
-    private func outputs(_ composingText: ComposingText) -> [String] {
+    private func generatedPrefixes(
+        _ composingText: ComposingText
+    ) -> [(text: String, provenance: KeyboardTypoCorrectionProvenance)] {
         let correction = KeyboardTypoCorrection(
             composingText: composingText,
             maxSpanLength: 20
@@ -23,19 +25,30 @@ final class KeyboardTypoCorrectionTests: XCTestCase {
         ) else {
             return []
         }
-        var result: [String] = []
+        var result: [(text: String, provenance: KeyboardTypoCorrectionProvenance)] = []
         while let next = generator.next() {
-            result.append(String(next.0))
+            result.append((String(next.0), next.1.provenance))
         }
         return result
     }
 
+    private func outputs(_ composingText: ComposingText) -> [String] {
+        self.generatedPrefixes(composingText).map(\.text)
+    }
+
     func testSmallTsuAddsCorrectedPrefix() {
-        XCTAssertTrue(outputs(composingText("kixtuxtute")).contains("キッテ"))
+        let prefixes = generatedPrefixes(composingText("kixtuxtute"))
+        let corrected = prefixes.first { $0.text == "キッテ" }
+        XCTAssertEqual(corrected?.provenance.kind, .smallTsu)
+        XCTAssertEqual(corrected?.provenance.originalSurfaceRange, 0 ..< 4)
     }
 
     func testDoubleNnAddsConsonantAndVowelContinuations() {
-        XCTAssertTrue(outputs(composingText("konnnnitiha")).contains("コンニチハ"))
+        let roman = generatedPrefixes(composingText("konnnnitiha"))
+        let corrected = roman.first { $0.text == "コンニチハ" }
+        XCTAssertEqual(corrected?.provenance.kind, .doubleNn)
+        XCTAssertEqual(corrected?.provenance.originalSurfaceRange, 0 ..< 6)
+
         XCTAssertTrue(outputs(composingText("こんんいちは")).contains("コンニチハ"))
     }
 

@@ -10,6 +10,7 @@ struct KeyboardTypoCorrection: Sendable {
     struct Prefix: Sendable {
         var characters: [Character]
         var originalEndIndex: Int
+        var provenance: KeyboardTypoCorrectionProvenance
     }
 
     struct Generator: Sendable {
@@ -28,13 +29,13 @@ struct KeyboardTypoCorrection: Sendable {
             }
         }
 
-        mutating func next() -> ([Character], (endIndex: Lattice.LatticeIndex, penalty: PValue))? {
+        mutating func next() -> ([Character], (endIndex: Lattice.LatticeIndex, penalty: PValue, provenance: KeyboardTypoCorrectionProvenance))? {
             guard let prefix = self.prefixes.popLast() else {
                 return nil
             }
             return (
                 prefix.characters,
-                (.surface(prefix.originalEndIndex), 0)
+                (.surface(prefix.originalEndIndex), 0, prefix.provenance)
             )
         }
     }
@@ -165,6 +166,7 @@ struct KeyboardTypoCorrection: Sendable {
         var prefixes: [Prefix] = []
         var index = start
         var corrected = false
+        var correctionKind: KeyboardTypoCorrectionProvenance.Kind?
 
         while index < end {
             if !corrected,
@@ -173,10 +175,15 @@ struct KeyboardTypoCorrection: Sendable {
                 output.append(contentsOf: rewrite.replacement)
                 index += rewrite.consumedCount
                 corrected = true
+                correctionKind = rewrite.kind
                 prefixes.append(
                     Prefix(
                         characters: output.map { $0.toKatakana() },
-                        originalEndIndex: index - 1
+                        originalEndIndex: index - 1,
+                        provenance: .init(
+                            kind: rewrite.kind,
+                            originalSurfaceRange: start ..< index
+                        )
                     )
                 )
                 continue
@@ -184,11 +191,15 @@ struct KeyboardTypoCorrection: Sendable {
 
             output.append(surface[index])
             index += 1
-            if corrected {
+            if corrected, let correctionKind {
                 prefixes.append(
                     Prefix(
                         characters: output.map { $0.toKatakana() },
-                        originalEndIndex: index - 1
+                        originalEndIndex: index - 1,
+                        provenance: .init(
+                            kind: correctionKind,
+                            originalSurfaceRange: start ..< index
+                        )
                     )
                 )
             }
@@ -200,7 +211,7 @@ struct KeyboardTypoCorrection: Sendable {
         surface: [Character],
         at index: Int,
         end: Int
-    ) -> (replacement: [Character], consumedCount: Int)? {
+    ) -> (replacement: [Character], consumedCount: Int, kind: KeyboardTypoCorrectionProvenance.Kind)? {
         guard index + 3 < end else {
             return nil
         }
@@ -215,7 +226,7 @@ struct KeyboardTypoCorrection: Sendable {
            second == "っ", third == "っ",
            Self.isHiragana(fourth), fourth != "っ"
         {
-            return ([first, "っ", fourth], 4)
+            return ([first, "っ", fourth], 4, .smallTsu)
         }
 
         // DoubleNN: ([^ん])んんX -> $1んX. A following vowel is folded
@@ -231,7 +242,7 @@ struct KeyboardTypoCorrection: Sendable {
             case "お": "の"
             default: fourth
             }
-            return ([first, "ん", continuation], 4)
+            return ([first, "ん", continuation], 4, .doubleNn)
         }
 
         return nil

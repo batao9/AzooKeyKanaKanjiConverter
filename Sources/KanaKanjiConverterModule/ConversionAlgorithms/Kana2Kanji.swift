@@ -45,7 +45,8 @@ struct Kana2Kanji {
             value: value,
             composingCount: composingCount,
             lastMid: lastMid,
-            data: data.data
+            data: data.data,
+            keyboardTypoCorrections: data.keyboardTypoCorrections.map(\.provenance)
         )
     }
 }

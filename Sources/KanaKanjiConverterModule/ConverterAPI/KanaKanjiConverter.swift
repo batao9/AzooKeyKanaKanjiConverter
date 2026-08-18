@@ -919,7 +919,10 @@ public final class KanaKanjiConverter {
                 value: first.value,
                 composingCount: first.clause.ranges.reduce(into: .inputCount(0)) { $0 = .composite($0, $1.count) },
                 lastMid: first.clause.mid,
-                data: Array(candidateData.data[0...count])
+                data: Array(candidateData.data[0...count]),
+                keyboardTypoCorrections: candidateData.keyboardTypoCorrections.lazy
+                    .filter { $0.dataIndex <= count }
+                    .map(\.provenance)
             )
         })
 
@@ -954,7 +957,8 @@ public final class KanaKanjiConverter {
                         value: $0.data.value(),
                         composingCount: $0.range.count,
                         lastMid: $0.data.mid,
-                        data: [$0.data]
+                        data: [$0.data],
+                        keyboardTypoCorrections: $0.keyboardTypoCorrectionProvenance.map { [$0] } ?? []
                     )
                 }
             // その他辞書データに追加する候補

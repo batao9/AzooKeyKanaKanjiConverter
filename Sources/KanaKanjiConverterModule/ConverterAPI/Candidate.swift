@@ -48,12 +48,23 @@ extension ClauseDataUnit: CustomDebugStringConvertible {
 
 struct CandidateData {
     typealias ClausesUnit = (clause: ClauseDataUnit, value: PValue)
+    struct KeyboardTypoCorrection {
+        var dataIndex: Int
+        var provenance: KeyboardTypoCorrectionProvenance
+    }
+
     var clauses: [ClausesUnit]
     var data: [DicdataElement]
+    var keyboardTypoCorrections: [KeyboardTypoCorrection]
 
-    init(clauses: [ClausesUnit], data: [DicdataElement]) {
+    init(
+        clauses: [ClausesUnit],
+        data: [DicdataElement],
+        keyboardTypoCorrections: [KeyboardTypoCorrection] = []
+    ) {
         self.clauses = clauses
         self.data = data
+        self.keyboardTypoCorrections = keyboardTypoCorrections
     }
 
     var lastClause: ClauseDataUnit? {
@@ -62,6 +73,27 @@ struct CandidateData {
 
     var isEmpty: Bool {
         clauses.isEmpty
+    }
+}
+
+/// The bounded keyboard rewrite rules traversed while constructing a candidate.
+///
+/// This is path metadata rather than dictionary-entry metadata: the same word
+/// can be reached from either an exact reading or a corrected reading.
+public struct KeyboardTypoCorrectionProvenance: Sendable, Equatable, Hashable {
+    public enum Kind: Sendable, Equatable, Hashable {
+        case smallTsu
+        case doubleNn
+    }
+
+    public var kind: Kind
+    /// Character-offset range in `ComposingText.convertTarget` consumed by the
+    /// corrected lattice node. The actual rewrite is contained in this range.
+    public var originalSurfaceRange: Range<Int>
+
+    public init(kind: Kind, originalSurfaceRange: Range<Int>) {
+        self.kind = kind
+        self.originalSurfaceRange = originalSurfaceRange
     }
 }
 
@@ -165,7 +197,10 @@ public struct Candidate: Sendable {
     /// 学習対象かどうか（ユーザショートカット等は除外する）
     public var isLearningTarget: Bool
 
-    public init(text: String, value: PValue, composingCount: ComposingCount, lastMid: Int, data: [DicdataElement], actions: [CompleteAction] = [], inputable: Bool = true, isLearningTarget: Bool = true) {
+    /// Keyboard rewrite rules traversed by the lattice path for this candidate.
+    public var keyboardTypoCorrections: [KeyboardTypoCorrectionProvenance]
+
+    public init(text: String, value: PValue, composingCount: ComposingCount, lastMid: Int, data: [DicdataElement], actions: [CompleteAction] = [], inputable: Bool = true, isLearningTarget: Bool = true, keyboardTypoCorrections: [KeyboardTypoCorrectionProvenance] = []) {
         self.text = text
         self.value = value
         self.composingCount = composingCount
@@ -175,6 +210,7 @@ public struct Candidate: Sendable {
         self.inputable = inputable
         self.rubyCount = self.data.reduce(into: 0) { $0 += $1.ruby.count }
         self.isLearningTarget = isLearningTarget
+        self.keyboardTypoCorrections = keyboardTypoCorrections
     }
     /// 後から`action`を追加した形を生成する関数
     /// - parameters:

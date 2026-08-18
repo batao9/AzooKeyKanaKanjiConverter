@@ -297,15 +297,15 @@ public final class DicdataStore {
             self.surfaceGenerator?.setUnreachablePath(target: target)
             self.keyboardTypoCorrectionGenerator?.setUnreachablePath(target: target)
         }
-        mutating func next() -> ([Character], (endIndex: Lattice.LatticeIndex, penalty: PValue))? {
+        mutating func next() -> ([Character], (endIndex: Lattice.LatticeIndex, penalty: PValue, keyboardTypoCorrection: KeyboardTypoCorrectionProvenance?))? {
             if let next = self.surfaceGenerator?.next() {
-                return next
+                return (next.0, (next.1.endIndex, next.1.penalty, nil))
             }
             if let next = self.keyboardTypoCorrectionGenerator?.next() {
-                return next
+                return (next.0, (next.1.endIndex, next.1.penalty, next.1.provenance))
             }
             if let next = self.typoCorrectionGenerator?.next() {
-                return next
+                return (next.0, (next.1.endIndex, next.1.penalty, nil))
             }
             return nil
         }
@@ -319,7 +319,7 @@ public final class DicdataStore {
         needTypoCorrection: Bool,
         state: DicdataStoreState
     ) -> (
-        stringToInfo: [[Character]: (endIndex: Lattice.LatticeIndex, penalty: PValue)],
+        stringToInfo: [[Character]: (endIndex: Lattice.LatticeIndex, penalty: PValue, keyboardTypoCorrection: KeyboardTypoCorrectionProvenance?)],
         indices: [(key: String, indices: [Int])],
         temporaryMemoryDicdata: [DicdataElement]
     ) {
@@ -351,7 +351,7 @@ public final class DicdataStore {
             generator.register(typoCorrectionGenerator)
         }
         var targetLOUDS: [String: LOUDS.MovingTowardPrefixSearchHelper] = [:]
-        var stringToInfo: [([Character], (endIndex: Lattice.LatticeIndex, penalty: PValue))] = []
+        var stringToInfo: [([Character], (endIndex: Lattice.LatticeIndex, penalty: PValue, keyboardTypoCorrection: KeyboardTypoCorrectionProvenance?))] = []
         // 動的辞書（一時学習データ、動的ユーザ辞書）から取り出されたデータ
         var dynamicDicdata: [Int: [DicdataElement]] = [:]
         // ジェネレータを舐める
@@ -469,7 +469,7 @@ public final class DicdataStore {
 
     private static func allowsKeyboardTypoDictionaryLookup(
         characters: [Character],
-        info: (endIndex: Lattice.LatticeIndex, penalty: PValue),
+        info: (endIndex: Lattice.LatticeIndex, penalty: PValue, keyboardTypoCorrection: KeyboardTypoCorrectionProvenance?),
         originalSurface: [Character]?,
         inputProcessRange: TypoCorrectionGenerator.ProcessRange?,
         surfaceProcessRange: TypoCorrectionGenerator.ProcessRange?,
@@ -629,7 +629,20 @@ public final class DicdataStore {
 
         var latticeNodes: [LatticeNode] = []
         let needBOS = inputRange?.startIndex == .zero || surfaceRange?.startIndex == .zero
-        func appendNode(_ element: consuming DicdataElement, endIndex: Lattice.LatticeIndex) {
+        func appendNode(
+            _ source: consuming DicdataElement,
+            endIndex: Lattice.LatticeIndex,
+            keyboardTypoCorrection: KeyboardTypoCorrectionProvenance? = nil
+        ) {
+            var element = source
+            if let keyboardTypoCorrection {
+                switch keyboardTypoCorrection.kind {
+                case .smallTsu:
+                    element.metadata.insert(.isKeyboardSmallTsuCorrection)
+                case .doubleNn:
+                    element.metadata.insert(.isKeyboardDoubleNnCorrection)
+                }
+            }
             let range: Lattice.LatticeRange = switch endIndex {
             case .input(let endIndex): .input(from: (inputRange?.startIndex)!, to: endIndex + 1)
             case .surface(let endIndex): .surface(from: (surfaceRange?.startIndex)!, to: endIndex + 1)
@@ -676,7 +689,11 @@ public final class DicdataStore {
                 continue
             }
             if let element = penaltizedElementIfFeasible(consume element, rubyCount: rubyArray.count, penalty: info.penalty) {
-                appendNode(element, endIndex: info.endIndex)
+                appendNode(
+                    element,
+                    endIndex: info.endIndex,
+                    keyboardTypoCorrection: info.keyboardTypoCorrection
+                )
             }
         }
 
@@ -690,7 +707,11 @@ public final class DicdataStore {
                     continue
                 }
                 if let element = penaltizedElementIfFeasible(consume element, rubyCount: rubyArray.count, penalty: info.penalty) {
-                    appendNode(element, endIndex: info.endIndex)
+                    appendNode(
+                        element,
+                        endIndex: info.endIndex,
+                        keyboardTypoCorrection: info.keyboardTypoCorrection
+                    )
                 }
             }
         }

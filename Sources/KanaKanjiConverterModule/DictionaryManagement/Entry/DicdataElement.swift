@@ -105,4 +105,8 @@ public struct DicdataElementMetadata: OptionSet, Sendable, Hashable, Equatable {
     public static let isFromUserDictionary = DicdataElementMetadata(rawValue: 1 << 1) // 2
     /// ローマ字入力の原surfaceにだけ適用する誤入力辞書エントリ
     public static let isKeyboardTypoCorrection = DicdataElementMetadata(rawValue: 1 << 2) // 4
+    /// SmallTSU rewriteを経由してlookupされたlattice node
+    static let isKeyboardSmallTsuCorrection = DicdataElementMetadata(rawValue: 1 << 3) // 8
+    /// DoubleNN rewriteを経由してlookupされたlattice node
+    static let isKeyboardDoubleNnCorrection = DicdataElementMetadata(rawValue: 1 << 4) // 16
 }

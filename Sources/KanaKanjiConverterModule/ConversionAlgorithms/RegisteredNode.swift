@@ -86,6 +86,7 @@ extension RegisteredNode {
         clauses.reserveCapacity(nonEmptyCount + 1)
         var data: [DicdataElement] = []
         data.reserveCapacity(nonEmptyCount)
+        var keyboardTypoCorrections: [CandidateData.KeyboardTypoCorrection] = []
         var unit = ClauseDataUnit()
         unit.mid = head.data.mid
         unit.ranges = [head.range]
@@ -99,6 +100,14 @@ extension RegisteredNode {
             // もとの実装と同じく、空語はスキップ
             if node.data.word.isEmpty {
                 continue
+            }
+            if let provenance = makeKeyboardTypoCorrectionProvenance(
+                data: node.data,
+                range: node.range
+            ) {
+                keyboardTypoCorrections.append(
+                    .init(dataIndex: data.count, provenance: provenance)
+                )
             }
 
             let prevNode = chain[i - 1]
@@ -130,6 +139,10 @@ extension RegisteredNode {
                 lastClauseIndex = clauses.count - 1
             }
         }
-        return CandidateData(clauses: clauses, data: data)
+        return CandidateData(
+            clauses: clauses,
+            data: data,
+            keyboardTypoCorrections: keyboardTypoCorrections
+        )
     }
 }

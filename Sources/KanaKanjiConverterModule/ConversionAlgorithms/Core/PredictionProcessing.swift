@@ -16,7 +16,8 @@ extension Kana2Kanji {
                 value: left.value + right.value,
                 composingCount: .composite(left.composingCount, right.composingCount),
                 lastMid: right.lastMid,
-                data: left.data + right.data
+                data: left.data + right.data,
+                keyboardTypoCorrections: left.keyboardTypoCorrections + right.keyboardTypoCorrections
             )
         }
         let ccValue = self.dicdataStore.getCCValue(leftLast.lcid, rightFirst.lcid)
@@ -28,7 +29,8 @@ extension Kana2Kanji {
             value: newValue,
             composingCount: .composite(left.composingCount, right.composingCount),
             lastMid: right.lastMid,
-            data: left.data + right.data
+            data: left.data + right.data,
+            keyboardTypoCorrections: left.keyboardTypoCorrections + right.keyboardTypoCorrections
         )
     }
 
